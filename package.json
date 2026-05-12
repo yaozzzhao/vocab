@@ -1,12 +1,15 @@
 {
   "name": "vocabmaster",
-  "workspaces": ["frontend", "backend"], 
+  "workspaces": [
+    "frontend"
+  ],
   "scripts": {
-    "dev-frontend": "npm run dev --prefix frontend",
-    "dev-backend": "npm run dev --prefix backend",
-    "dev": "concurrently \"npm run dev-frontend\" \"npm run dev-backend\""
+    "build": "npm run build --prefix frontend",
+    "pages:dev": "npm run build --prefix frontend && wrangler pages dev frontend/dist --kv VOCAB_KV",
+    "deploy": "npm run build --prefix frontend && wrangler pages deploy frontend/dist",
+    "dev-frontend": "npm run dev --prefix frontend"
   },
   "devDependencies": {
-    "concurrently": "latest"
+    "wrangler": "^4.90.0"
   }
 }

@@ -1,0 +1,11 @@
+name = "vocabmaster"
+compatibility_date = "2026-05-12"
+pages_build_output_dir = "frontend/dist"
+
+[[kv_namespaces]]
+binding = "VOCAB_KV"
+id = "f3844e2602b04993a0e63f2918869c87"
+preview_id = "f3844e2602b04993a0e63f2918869c87"
+
+[vars]
+GEMINI_MODEL = "gemini-2.5-flash"

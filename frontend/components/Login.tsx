@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import * as db from '../db';
-import { hashPassword, verifyPassword } from '../auth';
 import { User as UserIcon, Lock, AlertCircle } from 'lucide-react';
 
 interface LoginProps {
-  onLogin: (user: User) => void;
+  onLogin: (user: User, token: string) => void;
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin }) => {
@@ -13,6 +12,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,34 +23,20 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       return;
     }
 
-    if (isRegister) {
-      // Handle Registration
-      const existingUser = await db.getUser(username);
-      if (existingUser) {
-        setError("Username already exists. Please choose another one.");
-        return;
-      }
-      const passwordHash = await hashPassword(password);
-      await db.addUser({ username, passwordHash, role: 'user' });
-      const newUser = await db.getUser(username);
-      if (newUser) {
-        onLogin(newUser);
+    setLoading(true);
+    try {
+      if (isRegister) {
+        const { user, token } = await db.register(username.trim(), password);
+        onLogin(user, token);
       } else {
-        setError("Registration failed. Please try again.");
+        const { user, token } = await db.login(username.trim(), password);
+        onLogin(user, token);
       }
-    } else {
-      // Handle Login
-      const user = await db.getUser(username);
-      if (!user) {
-        setError("Invalid username or password.");
-        return;
-      }
-      const isPasswordValid = await verifyPassword(password, user.passwordHash);
-      if (isPasswordValid) {
-        onLogin(user);
-      } else {
-        setError("Invalid username or password.");
-      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '操作失败，请重试';
+      setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -78,6 +64,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full pl-10 pr-3 py-3 border border-stone-300 rounded-md focus:ring-slate-500 focus:border-slate-500"
+              disabled={loading}
             />
           </div>
           <div className="relative">
@@ -88,14 +75,16 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full pl-10 pr-3 py-3 border border-stone-300 rounded-md focus:ring-slate-500 focus:border-slate-500"
+              disabled={loading}
             />
           </div>
           <div>
             <button
               type="submit"
-              className="w-full py-3 bg-slate-800 text-white rounded-md font-medium hover:bg-slate-900 transition-colors"
+              disabled={loading}
+              className="w-full py-3 bg-slate-800 text-white rounded-md font-medium hover:bg-slate-900 transition-colors disabled:opacity-50"
             >
-              {isRegister ? 'Register' : 'Sign In'}
+              {loading ? 'Loading...' : (isRegister ? 'Register' : 'Sign In')}
             </button>
           </div>
         </form>

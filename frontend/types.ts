@@ -1,8 +1,8 @@
+// 前端公开用户类型（不含密码哈希）
 export interface User {
   id: number;
   username: string;
-  passwordHash: string;
-  role: 'admin' | 'user';
+  role: "admin" | "user";
 }
 
 export interface Word {
@@ -12,21 +12,33 @@ export interface Word {
   phonetic: string;
   meaning: string;
   page?: string;
-  ownerId: number; // Foreign key to User
+  ownerId: number;
 }
 
 export interface MistakeRecord {
   id?: number;
   wordId: string;
-  userId: number; // Foreign key to User
-  nextReviewDate: number; // timestamp
+  userId: number;
+  nextReviewDate: number;
   reviewCount: number;
 }
 
-export type ViewState = 'home' | 'test' | 'manage' | 'user_management' | 'error_book';
+export type ViewState =
+  | "home"
+  | "test"
+  | "manage"
+  | "user_management"
+  | "error_book"
+  | "word_library";
 
 export interface TestConfig {
-  mode: 'unit' | 'review';
+  mode: "unit" | "review";
   unitName?: string;
   words: Word[];
+}
+
+export interface ApiResponse<T = unknown> {
+  success: boolean;
+  data: T | null;
+  error: string | null;
 }

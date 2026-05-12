@@ -1,133 +1,198 @@
-import { IDBPDatabase, openDB } from 'idb';
-import { User, Word, MistakeRecord } from './types';
-import { hashPassword } from './auth';
+/**
+ * frontend/db.ts — API 客户端，替换原来的 IndexedDB 实现
+ * 保留原有函数签名，改为调用后端 /api/* 接口
+ */
 
-const DB_NAME = 'VocabMasterDB';
-const DB_VERSION = 1;
+import type { User, Word, MistakeRecord } from "./types";
 
-let db: IDBPDatabase;
+// ── Session 管理 ─────────────────────────────────────────────────────────────
 
-async function initDB() {
-  if (db) return;
-
-  db = await openDB(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion, newVersion, transaction) {
-      if (!db.objectStoreNames.contains('users')) {
-        const userStore = db.createObjectStore('users', { keyPath: 'id', autoIncrement: true });
-        userStore.createIndex('username', 'username', { unique: true });
-      }
-      if (!db.objectStoreNames.contains('words')) {
-        const wordStore = db.createObjectStore('words', { keyPath: 'id' });
-        wordStore.createIndex('ownerId', 'ownerId');
-      }
-      if (!db.objectStoreNames.contains('mistakes')) {
-        const mistakeStore = db.createObjectStore('mistakes', { keyPath: 'id', autoIncrement: true });
-        mistakeStore.createIndex('userId', 'userId');
-        mistakeStore.createIndex('wordId_userId', ['wordId', 'userId'], { unique: true });
-      }
-    },
-  });
-
-  // Seed default admin user if it doesn't exist
-  const adminUser = await getUser('admin');
-  if (!adminUser) {
-    const passwordHash = await hashPassword('passw0rd');
-    await db.add('users', { username: 'admin', passwordHash, role: 'admin' });
-  }
+export function setSession(user: User, token: string): void {
+  sessionStorage.setItem("currentUser", JSON.stringify(user));
+  sessionStorage.setItem("authToken", token);
 }
 
-// --- User Functions ---
-export const addUser = async (user: Omit<User, 'id'>): Promise<IDBValidKey> => {
-  await initDB();
-  return db.add('users', user);
+export function clearSession(): void {
+  sessionStorage.removeItem("currentUser");
+  sessionStorage.removeItem("authToken");
+}
+
+export function getAuthToken(): string | null {
+  return sessionStorage.getItem("authToken");
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token
+    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    : { "Content-Type": "application/json" };
+}
+
+// ── 通用请求工具 ──────────────────────────────────────────────────────────────
+
+async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    ...options,
+    headers: { ...getAuthHeaders(), ...(options?.headers ?? {}) },
+  });
+  const data = await res.json();
+  if (!data.success) {
+    throw new Error(data.error ?? `Request failed with status ${res.status}`);
+  }
+  return data.data as T;
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export async function login(
+  username: string,
+  password: string,
+): Promise<{ user: User; token: string }> {
+  const result = await apiFetch<{ user: User; token: string }>(
+    "/api/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    },
+  );
+  setSession(result.user, result.token);
+  return result;
+}
+
+export async function register(
+  username: string,
+  password: string,
+): Promise<{ user: User; token: string }> {
+  const result = await apiFetch<{ user: User; token: string }>(
+    "/api/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    },
+  );
+  setSession(result.user, result.token);
+  return result;
+}
+
+// ── User Functions (保留原有签名，管理功能用) ─────────────────────────────────
+
+export const addUser = async (_user: Omit<User, "id">): Promise<void> => {
+  // 注册已通过 register() 处理，此函数保留以兼容旧调用
+  throw new Error("Use register() instead of addUser() directly.");
 };
 
-export const getUser = async (username: string): Promise<User | undefined> => {
-  await initDB();
-  return db.getFromIndex('users', 'username', username);
+export const getUser = async (_username: string): Promise<User | undefined> => {
+  // 登录已通过 login() 处理，此函数保留以兼容旧调用
+  throw new Error("Use login() instead of getUser() directly.");
 };
 
 export const getAllUsers = async (): Promise<User[]> => {
-  await initDB();
-  return db.getAll('users');
+  const result = await apiFetch<{ users: User[] }>("/api/users");
+  return result.users;
 };
 
-export const updateUser = async (user: User): Promise<IDBValidKey> => {
-  await initDB();
-  return db.put('users', user);
-};
-
-// --- Word Functions ---
-export const addWords = async (words: Omit<Word, 'id' | 'ownerId'>[], ownerId: number): Promise<void> => {
-  await initDB();
-  const tx = db.transaction('words', 'readwrite');
-  const promises = words.map(word => {
-    const newWord: Omit<Word, 'id'> & { id: string } = {
-      ...word,
-      id: Math.random().toString(36).substring(2, 15) + Date.now().toString(36),
-      ownerId,
-    };
-    return tx.store.add(newWord);
+export const updateUser = async (user: User): Promise<void> => {
+  await apiFetch<{ user: User }>(`/api/users/${user.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role: user.role }),
   });
-  await Promise.all([...promises, tx.done]);
+};
+
+// ── Word Functions ────────────────────────────────────────────────────────────
+
+export const addWords = async (
+  words: Omit<Word, "id" | "ownerId">[],
+  ownerId: number,
+): Promise<void> => {
+  await apiFetch("/api/words/bulk", {
+    method: "POST",
+    body: JSON.stringify({ ownerId, words }),
+  });
 };
 
 export const getWords = async (ownerId: number): Promise<Word[]> => {
-  await initDB();
-  return db.getAllFromIndex('words', 'ownerId', ownerId);
+  const result = await apiFetch<{ words: Word[] }>(
+    `/api/words?ownerId=${ownerId}`,
+  );
+  return result.words;
 };
 
 export const clearAllUserData = async (userId: number): Promise<void> => {
-  await initDB();
-  const wordTx = db.transaction('words', 'readwrite');
-  const wordStore = wordTx.objectStore('words');
-  const wordIndex = wordStore.index('ownerId');
-  let cursor = await wordIndex.openCursor(userId);
-  while (cursor) {
-    await cursor.delete();
-    cursor = await cursor.continue();
-  }
-  await wordTx.done;
-
-  const mistakeTx = db.transaction('mistakes', 'readwrite');
-  const mistakeStore = mistakeTx.objectStore('mistakes');
-  const mistakeIndex = mistakeStore.index('userId');
-  cursor = await mistakeIndex.openCursor(userId);
-  while (cursor) {
-    await cursor.delete();
-    cursor = await cursor.continue();
-  }
-  await mistakeTx.done;
+  await apiFetch(`/api/users/${userId}/data`, { method: "DELETE" });
 };
 
-// --- Mistake Functions ---
-export const getMistakes = async (userId: number): Promise<MistakeRecord[]> => {
-  await initDB();
-  return db.getAllFromIndex('mistakes', 'userId', userId);
+// ── Word Library Management (管理员功能) ──────────────────────────────────────
+
+export const updateWord = async (
+  wordId: string,
+  ownerId: number,
+  updates: Partial<Omit<Word, "id" | "ownerId">>,
+): Promise<Word> => {
+  const result = await apiFetch<{ word: Word }>(
+    `/api/words/${encodeURIComponent(wordId)}?ownerId=${ownerId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    },
+  );
+  return result.word;
 };
 
-export const addOrUpdateMistakes = async (mistakes: Omit<MistakeRecord, 'id'>[]): Promise<void> => {
-  await initDB();
-  const tx = db.transaction('mistakes', 'readwrite');
-  const store = tx.objectStore('mistakes');
-  const promises = mistakes.map(async (mistake) => {
-    const existing = await store.index('wordId_userId').get([mistake.wordId, mistake.userId]);
-    if (existing) {
-      return store.put({ ...existing, ...mistake });
-    }
-    return store.add(mistake);
+export const deleteWord = async (
+  wordId: string,
+  ownerId: number,
+): Promise<void> => {
+  await apiFetch(
+    `/api/words/${encodeURIComponent(wordId)}?ownerId=${ownerId}`,
+    {
+      method: "DELETE",
+    },
+  );
+};
+
+export const deleteWords = async (
+  wordIds: string[],
+  ownerId: number,
+): Promise<void> => {
+  await apiFetch("/api/words/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ ownerId, wordIds }),
   });
-  await Promise.all([...promises, tx.done]);
 };
 
-export const removeMistake = async (wordId: string, userId: number): Promise<void> => {
-  await initDB();
-  const tx = db.transaction('mistakes', 'readwrite');
-  const store = tx.objectStore('mistakes');
-  const index = store.index('wordId_userId');
-  const key = await index.getKey([wordId, userId]);
-  if (key) {
-    await store.delete(key);
-  }
-  await tx.done;
+export const exportWords = async (ownerId: number): Promise<Word[]> => {
+  const result = await apiFetch<{ words: Word[] }>(
+    `/api/words/export?ownerId=${ownerId}`,
+  );
+  return result.words;
+};
+
+// ── Mistake Functions ─────────────────────────────────────────────────────────
+
+export const getMistakes = async (userId: number): Promise<MistakeRecord[]> => {
+  const result = await apiFetch<{ mistakes: MistakeRecord[] }>(
+    `/api/mistakes?userId=${userId}`,
+  );
+  return result.mistakes;
+};
+
+export const addOrUpdateMistakes = async (
+  mistakes: Omit<MistakeRecord, "id">[],
+): Promise<void> => {
+  await apiFetch("/api/mistakes/bulk", {
+    method: "POST",
+    body: JSON.stringify({ mistakes }),
+  });
+};
+
+export const removeMistake = async (
+  wordId: string,
+  userId: number,
+): Promise<void> => {
+  await apiFetch(
+    `/api/mistakes/${encodeURIComponent(wordId)}?userId=${userId}`,
+    {
+      method: "DELETE",
+    },
+  );
 };

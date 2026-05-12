@@ -22,7 +22,7 @@ export const useAppStore = (currentUser: User | null) => {
       setWords(userWords);
       setMistakes(userMistakes);
     } catch (e) {
-      console.error("Failed to load data from database", e);
+      console.error("Failed to load data from API", e);
     } finally {
       setIsLoaded(true);
     }
@@ -36,7 +36,7 @@ export const useAppStore = (currentUser: User | null) => {
     if (!currentUser) return { added: 0, skipped: 0 };
 
     const existingWordSet = new Set(words.map(w => normalizeWord(w.word)));
-    
+
     const wordsToAdd = importedWords.filter(
       newWord => !existingWordSet.has(normalizeWord(newWord.word))
     );
@@ -45,7 +45,7 @@ export const useAppStore = (currentUser: User | null) => {
 
     if (wordsToAdd.length > 0) {
       await db.addWords(wordsToAdd, currentUser.id);
-      await fetchData(); // Refresh data from DB
+      await fetchData(); // Refresh data from API
     }
 
     return { added: wordsToAdd.length, skipped: skippedCount };
@@ -59,7 +59,7 @@ export const useAppStore = (currentUser: User | null) => {
 
   const addMistakesToStore = useCallback(async (wordIds: string[]) => {
     if (!currentUser) return;
-    
+
     const newMistakesToAdd = wordIds.map(id => ({
       wordId: id,
       userId: currentUser.id,
@@ -67,10 +67,7 @@ export const useAppStore = (currentUser: User | null) => {
       nextReviewDate: getNextReviewDate(0)
     }));
 
-    // Update DB in the background without waiting
-    db.addOrUpdateMistakes(newMistakesToAdd);
-
-    // Optimistically update local state to prevent re-render/unmount
+    // 乐观更新 UI
     setMistakes(prevMistakes => {
       const updatedMistakes = [...prevMistakes];
       newMistakesToAdd.forEach(newMistake => {
@@ -78,7 +75,6 @@ export const useAppStore = (currentUser: User | null) => {
         if (existingIndex === -1) {
           updatedMistakes.push(newMistake);
         } else {
-          // If it exists, just reset its review count
           updatedMistakes[existingIndex] = {
             ...updatedMistakes[existingIndex],
             reviewCount: 0,
@@ -88,11 +84,19 @@ export const useAppStore = (currentUser: User | null) => {
       });
       return updatedMistakes;
     });
-  }, [currentUser]);
+
+    // 等待 API 写入，失败时从服务器重新加载
+    try {
+      await db.addOrUpdateMistakes(newMistakesToAdd);
+    } catch (e) {
+      console.error('Failed to persist mistakes, refreshing from server:', e);
+      await fetchData();
+    }
+  }, [currentUser, fetchData]);
 
   const handleReviewResult = useCallback(async (wordId: string, isCorrect: boolean) => {
     if (!currentUser) return;
-    
+
     const mistakeIndex = mistakes.findIndex(m => m.wordId === wordId);
     if (mistakeIndex === -1) return;
 
@@ -113,26 +117,36 @@ export const useAppStore = (currentUser: User | null) => {
       };
     }
 
-    // Update DB in background
-    db.addOrUpdateMistakes([updatedMistake]);
-
-    // Optimistically update local state
+    // 乐观更新 UI
     setMistakes(prevMistakes => {
       const newMistakes = [...prevMistakes];
       newMistakes[mistakeIndex] = updatedMistake;
       return newMistakes;
     });
-  }, [currentUser, mistakes]);
+
+    // 等待 API 写入，失败时从服务器重新加载
+    try {
+      await db.addOrUpdateMistakes([updatedMistake]);
+    } catch (e) {
+      console.error('Failed to persist review result, refreshing from server:', e);
+      await fetchData();
+    }
+  }, [currentUser, mistakes, fetchData]);
 
   const removeMistakeFromStore = useCallback(async (wordId: string) => {
     if (!currentUser) return;
 
-    // Update DB in background
-    db.removeMistake(wordId, currentUser.id);
-
-    // Optimistically update local state
+    // 乐观更新 UI
     setMistakes(prevMistakes => prevMistakes.filter(m => m.wordId !== wordId));
-  }, [currentUser]);
+
+    // 等待 API 写入，失败时从服务器重新加载
+    try {
+      await db.removeMistake(wordId, currentUser.id);
+    } catch (e) {
+      console.error('Failed to remove mistake, refreshing from server:', e);
+      await fetchData();
+    }
+  }, [currentUser, fetchData]);
 
   return {
     words,
