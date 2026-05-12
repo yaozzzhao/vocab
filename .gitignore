@@ -1,7 +1,5 @@
-# Dependencies
-node_modules/
-
 # Optional: 更精确的忽略（推荐加上）
 .wrangler/
 dist/
 build/
+node_modules/
