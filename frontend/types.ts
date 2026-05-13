@@ -13,6 +13,9 @@ export interface Word {
   meaning: string;
   page?: string;
   ownerId: number;
+  publisher?: string;
+  grade?: number;
+  semester?: string;
 }
 
 export interface MistakeRecord {

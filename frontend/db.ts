@@ -110,10 +110,9 @@ export const addWords = async (
   });
 };
 
-export const getWords = async (ownerId: number): Promise<Word[]> => {
-  const result = await apiFetch<{ words: Word[] }>(
-    `/api/words?ownerId=${ownerId}`,
-  );
+export const getWords = async (ownerId?: number): Promise<Word[]> => {
+  const url = ownerId != null ? `/api/words?ownerId=${ownerId}` : "/api/words";
+  const result = await apiFetch<{ words: Word[] }>(url);
   return result.words;
 };
 

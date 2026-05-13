@@ -20,6 +20,9 @@ export interface WordRecord {
   meaning: string;
   page?: string;
   ownerId: number;
+  publisher?: string;
+  grade?: number;
+  semester?: string;
 }
 
 export interface MistakeRecord {

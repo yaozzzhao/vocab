@@ -291,13 +291,33 @@ async function handleGetWords(request: Request, env: Env): Promise<Response> {
 
   const url = new URL(request.url);
   const ownerIdStr = url.searchParams.get("ownerId");
-  const ownerId = ownerIdStr ? parseInt(ownerIdStr) : session.userId;
 
-  if (!isAdmin(session) && ownerId !== session.userId) {
-    return jsonError("Forbidden", 403);
+  if (ownerIdStr) {
+    const ownerId = parseInt(ownerIdStr);
+    if (!isAdmin(session) && ownerId !== session.userId) {
+      return jsonError("Forbidden", 403);
+    }
+    const words = await repoGetWords(env, ownerId);
+    return jsonOk({ words });
   }
 
-  const words = await repoGetWords(env, ownerId);
+  // 普通用户：先拉取 admin (id=1) 的共享词库，再合并自己的词
+  const adminId = 1;
+  if (isAdmin(session)) {
+    const words = await repoGetWords(env, session.userId);
+    return jsonOk({ words });
+  }
+
+  const [adminWords, userWords] = await Promise.all([
+    repoGetWords(env, adminId),
+    repoGetWords(env, session.userId),
+  ]);
+  const seen = new Set<string>();
+  const words = [...adminWords, ...userWords].filter((w) => {
+    if (seen.has(w.id)) return false;
+    seen.add(w.id);
+    return true;
+  });
   return jsonOk({ words });
 }
 
