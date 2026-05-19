@@ -1,53 +1,88 @@
-# Vertex AI Studio Frontend App with Node.js Backend
+# VocabMaster
 
-This repository contains a frontend and a Node.js backend, designed to run together.
-The backend acts as a proxy, handling Google Cloud API calls.
+A vocabulary learning app for students. Supports unit-based word testing, mistake tracking with spaced repetition, and AI-generated reading articles.
 
-This project is intended for demonstration and prototyping purposes only.
-It is not intended for use in a production environment.
+**Live:** https://vocabmaster-92k.pages.dev
 
-## Prerequisites
+## Stack
 
-To run this application locally, you need:
+- **Frontend:** React + TypeScript + Vite, deployed on Cloudflare Pages
+- **Backend:** Cloudflare Pages Functions (TypeScript)
+- **Database:** Supabase (PostgreSQL)
+- **AI:** Google Gemini (article generation)
 
-*   **[Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)**: Follow the instructions to install the SDK.
+## Features
 
-*   **gcloud Initialization**:
-    *   Initialize the gcloud CLI:
-        ```bash
-        gcloud init
-        ```
-    *   Authenticate for Application Default Credentials (needed to call Google Cloud APIs):
-        ```bash
-        gcloud auth application-default login
-        ```
-
-*   **Node.js and npm**: Ensure you have Node.js and its package manager, `npm`, installed on your machine.
+- Unit-based vocabulary tests with multiple choice
+- Mistake book with spaced repetition review scheduling
+- AI-generated English articles using selected vocabulary
+- Admin panel: word library management, user management
+- JWT-based authentication
 
 ## Project Structure
 
-The project is organized into two main directories:
+```
+├── frontend/          # React app (Vite)
+│   ├── components/    # UI components
+│   ├── db.ts          # API client
+│   └── types.ts       # Shared types
+├── functions/         # Cloudflare Pages Functions
+│   ├── api/           # Route handlers
+│   ├── _repositories.ts  # Supabase data access
+│   └── _helpers.ts    # Auth, JWT utilities
+├── data-handling/     # Data import scripts
+│   ├── import_vocab.py   # Import words into Supabase
+│   └── supabase_schema.sql
+└── wrangler.toml
+```
 
-*   `frontend/`: Contains the Frontend application code.
-*   `backend/`: Contains the Node.js/Express server code to proxy Google Cloud API calls.
+## Database Schema
 
-## Backend Environment Variables
+Three tables in Supabase:
 
-The `backend/.env.local` file is automatically generated when you download this application.
-It contains essential Google Cloud environment variables pre-configured based on your project settings at the time of download.
+- `users` — accounts with hashed passwords and roles (`admin` / `user`)
+- `words` — vocabulary entries; `owner_id = NULL` means shared system words visible to all users
+- `mistakes` — per-user mistake records with review scheduling
 
-The variables set in `backend/.env.local` are:
-*   `API_BACKEND_PORT`: The port the backend API server listens on (e.g., `5000`).
-*   `API_PAYLOAD_MAX_SIZE`: The maximum size of the request payload accepted by the backend server (e.g., `5mb`).
-*   `GOOGLE_CLOUD_LOCATION`: The Google Cloud region associated with your project.
-*   `GOOGLE_CLOUD_PROJECT`: Your Google Cloud Project ID.
-
-**Note:** These variables are automatically populated during the download process.
-You can modify the values in `backend/.env.local` if you need to change them.
-
-## Installation and Running the App
-
-To install dependencies and run your Google Cloud Vertex AI Studio App locally, execute the following command:
+## Local Development
 
 ```bash
-npm install && npm run dev
+npm install
+npm run dev-frontend   # frontend only (Vite dev server)
+```
+
+For full local testing with Cloudflare Workers runtime:
+
+```bash
+npm run pages:dev
+```
+
+## Deployment
+
+```bash
+npm run deploy
+```
+
+Deploys frontend + Functions to Cloudflare Pages.
+
+## Environment Variables
+
+Configure in Cloudflare Pages dashboard (Settings → Environment variables):
+
+| Variable | Description |
+|----------|-------------|
+| `SUPABASE_URL` | Supabase project URL (already in `wrangler.toml`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (secret) |
+| `SESSION_SECRET` | JWT signing secret |
+| `ADMIN_INITIAL_PASSWORD` | Password for the auto-created `admin` account |
+| `GEMINI_API_KEY` | Google Gemini API key |
+
+## Importing Vocabulary
+
+```bash
+cd data-handling
+pip install -r requirements.txt
+python import_vocab.py
+```
+
+Words imported with `owner_id = NULL` are shared across all users.
