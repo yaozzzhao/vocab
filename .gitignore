@@ -4,3 +4,5 @@ dist/
 build/
 node_modules/
 frontend/node_modules/
+.agents/
+.claude/
