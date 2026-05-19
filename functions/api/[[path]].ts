@@ -93,6 +93,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (path === "/api/words/bulk" && method === "POST") {
       return await handleBulkAddWords(request, env);
     }
+    if (path === "/api/words/bulk-delete" && method === "POST") {
+      return await handleBulkDeleteWords(request, env);
+    }
+    if (path === "/api/words/export" && method === "GET") {
+      return await handleExportWords(request, env);
+    }
+    const wordMatch = path.match(/^\/api\/words\/([^/]+)$/);
+    if (wordMatch && method === "PATCH") {
+      return await handleUpdateWord(request, env, wordMatch[1]);
+    }
+    if (wordMatch && method === "DELETE") {
+      return await handleDeleteWord(request, env, wordMatch[1]);
+    }
 
     // ===================== MISTAKE ROUTES =====================
     if (path === "/api/mistakes" && method === "GET") {
@@ -351,6 +364,82 @@ async function handleBulkAddWords(
 
   const created = await repoAddWords(env, ownerId, body.words as any[]);
   return jsonOk({ words: created });
+}
+
+async function handleUpdateWord(
+  request: Request,
+  env: Env,
+  wordId: string,
+): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+  if (!isAdmin(session)) return jsonError("Forbidden", 403);
+
+  const url = new URL(request.url);
+  const ownerIdStr = url.searchParams.get("ownerId");
+  const ownerId = ownerIdStr === "null" || ownerIdStr === null ? null : parseInt(ownerIdStr);
+
+  const body = await parseBody<Partial<Record<string, unknown>>>(request);
+  if (!body) return jsonError("Invalid body", 400);
+
+  const updated = await repoUpdateWord(env, ownerId, wordId, body as any);
+  return jsonOk({ word: updated });
+}
+
+async function handleDeleteWord(
+  request: Request,
+  env: Env,
+  wordId: string,
+): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+  if (!isAdmin(session)) return jsonError("Forbidden", 403);
+
+  const url = new URL(request.url);
+  const ownerIdStr = url.searchParams.get("ownerId");
+  const ownerId = ownerIdStr === "null" || ownerIdStr === null ? null : parseInt(ownerIdStr);
+
+  await repoDeleteWord(env, ownerId, wordId);
+  return jsonOk({ message: "单词已删除" });
+}
+
+async function handleBulkDeleteWords(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+  if (!isAdmin(session)) return jsonError("Forbidden", 403);
+
+  const body = await parseBody<{ ownerId?: number | null; wordIds?: string[] }>(request);
+  if (!body || !Array.isArray(body.wordIds) || body.wordIds.length === 0) {
+    return jsonError("wordIds 数组不能为空", 400);
+  }
+
+  const ownerId = body.ownerId === undefined ? null : body.ownerId;
+  await repoDeleteWords(env, ownerId, body.wordIds);
+  return jsonOk({ message: `已删除 ${body.wordIds.length} 个单词` });
+}
+
+async function handleExportWords(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+  if (!isAdmin(session)) return jsonError("Forbidden", 403);
+
+  const [sharedWords, adminWords] = await Promise.all([
+    repoGetWords(env, null),
+    repoGetWords(env, session.userId),
+  ]);
+  const seen = new Set<string>();
+  const words = [...sharedWords, ...adminWords].filter((w) => {
+    if (seen.has(w.id)) return false;
+    seen.add(w.id);
+    return true;
+  });
+  return jsonOk({ words });
 }
 
 // ===================== MISTAKE HANDLERS =====================

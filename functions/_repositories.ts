@@ -309,13 +309,14 @@ export async function getWords(
 
 export async function updateWord(
   env: Env,
-  ownerId: number,
+  ownerId: number | null,
   wordId: string,
   updates: Partial<Omit<WordRecord, "id" | "ownerId">>,
 ): Promise<WordRecord> {
+  const ownerFilter = ownerId === null ? "owner_id=is.null" : `owner_id=eq.${ownerId}`;
   const existing = await sbGet<WordRow>(
     env,
-    `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`,
+    `/words?id=eq.${wordId}&${ownerFilter}`,
   );
   if (!existing[0]) throw new Error("Word not found.");
   const patch: Record<string, unknown> = {};
@@ -330,33 +331,35 @@ export async function updateWord(
   if (updates.semester !== undefined) patch.semester = updates.semester;
   const res = await sbFetch(
     env,
-    `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`,
+    `/words?id=eq.${wordId}&${ownerFilter}`,
     { method: "PATCH", body: JSON.stringify(patch) },
   );
   if (!res.ok) throw new Error("Failed to update word.");
   const updated = await sbGet<WordRow>(
     env,
-    `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`,
+    `/words?id=eq.${wordId}&${ownerFilter}`,
   );
   return rowToWord(updated[0]);
 }
 
 export async function deleteWord(
   env: Env,
-  ownerId: number,
+  ownerId: number | null,
   wordId: string,
 ): Promise<void> {
-  await sbDelete(env, `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`);
+  const ownerFilter = ownerId === null ? "owner_id=is.null" : `owner_id=eq.${ownerId}`;
+  await sbDelete(env, `/words?id=eq.${wordId}&${ownerFilter}`);
 }
 
 export async function deleteWords(
   env: Env,
-  ownerId: number,
+  ownerId: number | null,
   wordIds: string[],
 ): Promise<void> {
   if (wordIds.length === 0) return;
+  const ownerFilter = ownerId === null ? "owner_id=is.null" : `owner_id=eq.${ownerId}`;
   const ids = wordIds.map((id) => `"${id}"`).join(",");
-  await sbDelete(env, `/words?id=in.(${ids})&owner_id=eq.${ownerId}`);
+  await sbDelete(env, `/words?id=in.(${ids})&${ownerFilter}`);
 }
 
 export async function clearAllUserData(

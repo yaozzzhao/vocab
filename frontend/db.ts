@@ -124,11 +124,12 @@ export const clearAllUserData = async (userId: number): Promise<void> => {
 
 export const updateWord = async (
   wordId: string,
-  ownerId: number,
+  ownerId: number | null,
   updates: Partial<Omit<Word, "id" | "ownerId">>,
 ): Promise<Word> => {
+  const ownerParam = ownerId != null ? `?ownerId=${ownerId}` : "?ownerId=null";
   const result = await apiFetch<{ word: Word }>(
-    `/api/words/${encodeURIComponent(wordId)}?ownerId=${ownerId}`,
+    `/api/words/${encodeURIComponent(wordId)}${ownerParam}`,
     {
       method: "PATCH",
       body: JSON.stringify(updates),
@@ -139,10 +140,11 @@ export const updateWord = async (
 
 export const deleteWord = async (
   wordId: string,
-  ownerId: number,
+  ownerId: number | null,
 ): Promise<void> => {
+  const ownerParam = ownerId != null ? `?ownerId=${ownerId}` : "?ownerId=null";
   await apiFetch(
-    `/api/words/${encodeURIComponent(wordId)}?ownerId=${ownerId}`,
+    `/api/words/${encodeURIComponent(wordId)}${ownerParam}`,
     {
       method: "DELETE",
     },
@@ -151,7 +153,7 @@ export const deleteWord = async (
 
 export const deleteWords = async (
   wordIds: string[],
-  ownerId: number,
+  ownerId: number | null,
 ): Promise<void> => {
   await apiFetch("/api/words/bulk-delete", {
     method: "POST",
@@ -159,10 +161,8 @@ export const deleteWords = async (
   });
 };
 
-export const exportWords = async (ownerId: number): Promise<Word[]> => {
-  const result = await apiFetch<{ words: Word[] }>(
-    `/api/words/export?ownerId=${ownerId}`,
-  );
+export const exportWords = async (): Promise<Word[]> => {
+  const result = await apiFetch<{ words: Word[] }>("/api/words/export");
   return result.words;
 };
 

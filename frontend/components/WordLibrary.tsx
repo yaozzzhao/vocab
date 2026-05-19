@@ -47,14 +47,14 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
   const fetchWords = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await db.getWords(currentUserId);
+      const result = await db.getWords();
       setWords(result);
     } catch (e: any) {
       setError(e.message || '加载单词库失败');
     } finally {
       setLoading(false);
     }
-  }, [currentUserId]);
+  }, []);
 
   useEffect(() => { fetchWords(); }, [fetchWords]);
 
@@ -97,7 +97,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     setSaving(true);
     setError(null);
     try {
-      const updated = await db.updateWord(editingWord.id, currentUserId, editForm);
+      const updated = await db.updateWord(editingWord.id, editingWord.ownerId, editForm);
       setWords(prev => prev.map(w => w.id === updated.id ? updated : w));
       setEditingWord(null);
       showSuccess('单词已更新');
@@ -136,7 +136,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     if (!window.confirm('确认删除这个单词？')) return;
     setDeletingIds(prev => new Set(prev).add(wordId));
     try {
-      await db.deleteWord(wordId, currentUserId);
+      await db.deleteWord(wordId, words.find(w => w.id === wordId)?.ownerId ?? null);
       setWords(prev => prev.filter(w => w.id !== wordId));
       setSelectedIds(prev => { const s = new Set(prev); s.delete(wordId); return s; });
       showSuccess('单词已删除');
@@ -153,7 +153,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     const ids = Array.from(selectedIds);
     ids.forEach(id => setDeletingIds(prev => new Set(prev).add(id)));
     try {
-      await db.deleteWords(ids, currentUserId);
+      await db.deleteWords(ids, words.find(w => w.id === ids[0])?.ownerId ?? null);
       setWords(prev => prev.filter(w => !selectedIds.has(w.id)));
       setSelectedIds(new Set());
       showSuccess(`已删除 ${ids.length} 个单词`);
@@ -184,7 +184,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
 
   const handleExport = async () => {
     try {
-      const allWords = await db.exportWords(currentUserId);
+      const allWords = await db.exportWords();
       const json = JSON.stringify(allWords, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
