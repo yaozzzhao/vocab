@@ -18,8 +18,9 @@ export interface WordRecord {
   word: string;
   phonetic: string;
   meaning: string;
+  pos?: string;
   page?: string;
-  ownerId: number;
+  ownerId: number | null;
   publisher?: string;
   grade?: number;
   semester?: string;
@@ -33,7 +34,149 @@ export interface MistakeRecord {
   reviewCount: number;
 }
 
-const USERS_INDEX = "meta:users:index";
+// ── Supabase REST helpers ────────────────────────────────────────────────────
+
+function supabaseHeaders(env: Env): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "apikey": env.SUPABASE_SERVICE_ROLE_KEY,
+    "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    "Prefer": "return=representation",
+  };
+}
+
+async function sbFetch(
+  env: Env,
+  path: string,
+  options: RequestInit = {},
+): Promise<Response> {
+  const url = `${env.SUPABASE_URL}/rest/v1${path}`;
+  return fetch(url, {
+    ...options,
+    headers: { ...supabaseHeaders(env), ...(options.headers as Record<string, string> ?? {}) },
+  });
+}
+
+async function sbGet<T>(env: Env, path: string): Promise<T[]> {
+  const res = await sbFetch(env, path);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase GET ${path} failed: ${err}`);
+  }
+  return res.json() as Promise<T[]>;
+}
+
+async function sbPost<T>(env: Env, path: string, body: unknown): Promise<T[]> {
+  const res = await sbFetch(env, path, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase POST ${path} failed: ${err}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : [];
+}
+
+async function sbPatch(env: Env, path: string, body: unknown): Promise<void> {
+  const res = await sbFetch(env, path, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase PATCH ${path} failed: ${err}`);
+  }
+}
+
+async function sbDelete(env: Env, path: string): Promise<void> {
+  const res = await sbFetch(env, path, { method: "DELETE" });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase DELETE ${path} failed: ${err}`);
+  }
+}
+
+// ── Row types (snake_case from Postgres) ────────────────────────────────────
+
+interface UserRow {
+  id: number;
+  username: string;
+  username_normalized: string;
+  role: "admin" | "user";
+  password_hash: string;
+  password_salt: string;
+  password_iterations: number;
+  created_at: number;
+  updated_at: number;
+}
+
+interface WordRow {
+  id: string;
+  unit: string;
+  word: string;
+  phonetic: string;
+  meaning: string;
+  pos: string | null;
+  page: string | null;
+  owner_id: number | null;
+  publisher: string | null;
+  grade: number | null;
+  semester: string | null;
+}
+
+interface MistakeRow {
+  id: number;
+  word_id: string;
+  user_id: number;
+  next_review_date: number;
+  review_count: number;
+}
+
+// ── Converters ───────────────────────────────────────────────────────────────
+
+function rowToUser(row: UserRow): UserRecord {
+  return {
+    id: row.id,
+    username: row.username,
+    usernameNormalized: row.username_normalized,
+    role: row.role,
+    passwordHash: row.password_hash,
+    passwordSalt: row.password_salt,
+    passwordIterations: row.password_iterations,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function rowToWord(row: WordRow): WordRecord {
+  return {
+    id: row.id,
+    unit: row.unit,
+    word: row.word,
+    phonetic: row.phonetic,
+    meaning: row.meaning,
+    pos: row.pos ?? undefined,
+    page: row.page ?? undefined,
+    ownerId: row.owner_id,
+    publisher: row.publisher ?? undefined,
+    grade: row.grade ?? undefined,
+    semester: row.semester ?? undefined,
+  };
+}
+
+function rowToMistake(row: MistakeRow): MistakeRecord {
+  return {
+    id: row.id,
+    wordId: row.word_id,
+    userId: row.user_id,
+    nextReviewDate: row.next_review_date,
+    reviewCount: row.review_count,
+  };
+}
+
+// ── Utilities ────────────────────────────────────────────────────────────────
 
 export function normalizeUsername(username: string): string {
   return username.trim().toLowerCase();
@@ -43,42 +186,14 @@ export function toPublicUser(user: UserRecord): PublicUser {
   return { id: user.id, username: user.username, role: user.role };
 }
 
-async function getJson<T>(env: Env, key: string, fallback: T): Promise<T> {
-  const value = await env.VOCAB_KV.get(key, "json");
-  return (value ?? fallback) as T;
-}
-
-async function putJson<T>(env: Env, key: string, value: T): Promise<void> {
-  await env.VOCAB_KV.put(key, JSON.stringify(value));
-}
-
-function usernameKey(normalized: string): string {
-  return `user:username:${normalized}`;
-}
-
-function userKey(id: number): string {
-  return `user:${id}`;
-}
-
-function wordsIndexKey(ownerId: number): string {
-  return `words:index:${ownerId}`;
-}
-
-function wordKey(ownerId: number, wordId: string): string {
-  return `word:${ownerId}:${wordId}`;
-}
-
-function mistakesIndexKey(userId: number): string {
-  return `mistakes:index:${userId}`;
-}
-
-function mistakeKey(userId: number, wordId: string): string {
-  return `mistake:${userId}:${wordId}`;
-}
+// ── User Repository ──────────────────────────────────────────────────────────
 
 export async function ensureAdmin(env: Env): Promise<void> {
-  const existing = await env.VOCAB_KV.get(usernameKey("admin"));
-  if (existing) return;
+  const rows = await sbGet<UserRow>(
+    env,
+    `/users?username_normalized=eq.admin&select=id`,
+  );
+  if (rows.length > 0) return;
   if (!env.ADMIN_INITIAL_PASSWORD) {
     throw new Error("ADMIN_INITIAL_PASSWORD is not configured.");
   }
@@ -92,55 +207,54 @@ export async function createUser(
   role: "admin" | "user" = "user",
 ): Promise<UserRecord> {
   const normalized = normalizeUsername(username);
-  const existing = await env.VOCAB_KV.get(usernameKey(normalized));
-  if (existing) throw new Error("Username already exists.");
+  const existing = await sbGet<UserRow>(
+    env,
+    `/users?username_normalized=eq.${encodeURIComponent(normalized)}&select=id`,
+  );
+  if (existing.length > 0) throw new Error("Username already exists.");
 
-  const userIds = await getJson<number[]>(env, USERS_INDEX, []);
-  const nextId = userIds.length === 0 ? 1 : Math.max(...userIds) + 1;
   const passwordResult = await hashPassword(password);
   const now = Date.now();
-  const user: UserRecord = {
-    id: nextId,
+  const rows = await sbPost<UserRow>(env, "/users", {
     username: username.trim(),
-    usernameNormalized: normalized,
+    username_normalized: normalized,
     role,
-    passwordHash: passwordResult.hash,
-    passwordSalt: passwordResult.salt,
-    passwordIterations: passwordResult.iterations,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await Promise.all([
-    putJson(env, userKey(nextId), user),
-    putJson(env, usernameKey(normalized), nextId),
-    putJson(env, USERS_INDEX, Array.from(new Set([...userIds, nextId]))),
-  ]);
-  return user;
+    password_hash: passwordResult.hash,
+    password_salt: passwordResult.salt,
+    password_iterations: passwordResult.iterations,
+    created_at: now,
+    updated_at: now,
+  });
+  if (!rows[0]) throw new Error("Failed to create user.");
+  return rowToUser(rows[0]);
 }
 
 export async function getUserByUsername(
   env: Env,
   username: string,
 ): Promise<UserRecord | null> {
-  const id = (await env.VOCAB_KV.get(
-    usernameKey(normalizeUsername(username)),
-    "json",
-  )) as number | null;
-  if (!id) return null;
-  return getUserById(env, id);
+  const normalized = normalizeUsername(username);
+  const rows = await sbGet<UserRow>(
+    env,
+    `/users?username_normalized=eq.${encodeURIComponent(normalized)}`,
+  );
+  return rows[0] ? rowToUser(rows[0]) : null;
 }
 
 export async function getUserById(
   env: Env,
   id: number,
 ): Promise<UserRecord | null> {
-  return env.VOCAB_KV.get(userKey(id), "json") as Promise<UserRecord | null>;
+  const rows = await sbGet<UserRow>(env, `/users?id=eq.${id}`);
+  return rows[0] ? rowToUser(rows[0]) : null;
 }
 
 export async function getAllUsers(env: Env): Promise<PublicUser[]> {
-  const userIds = await getJson<number[]>(env, USERS_INDEX, []);
-  const users = await Promise.all(userIds.map((id) => getUserById(env, id)));
-  return users.filter((u): u is UserRecord => Boolean(u)).map(toPublicUser);
+  const rows = await sbGet<UserRow>(
+    env,
+    `/users?select=id,username,role&order=id.asc`,
+  );
+  return rows.map((r) => ({ id: r.id, username: r.username, role: r.role }));
 }
 
 export async function updateUserRole(
@@ -153,47 +267,44 @@ export async function updateUserRole(
   if (user.usernameNormalized === "admin" && role !== "admin") {
     throw new Error("The default admin user's role cannot be changed.");
   }
-  const updated: UserRecord = { ...user, role, updatedAt: Date.now() };
-  await putJson(env, userKey(id), updated);
-  return toPublicUser(updated);
+  await sbPatch(env, `/users?id=eq.${id}`, {
+    role,
+    updated_at: Date.now(),
+  });
+  return { id: user.id, username: user.username, role };
 }
+
+// ── Word Repository ──────────────────────────────────────────────────────────
 
 export async function addWords(
   env: Env,
   ownerId: number,
   words: Omit<WordRecord, "id" | "ownerId">[],
 ): Promise<WordRecord[]> {
-  const currentIds = await getJson<string[]>(env, wordsIndexKey(ownerId), []);
-  const created = words.map((word) => ({
-    ...word,
-    id: crypto.randomUUID(),
-    ownerId,
+  const rows = words.map((w) => ({
+    unit: w.unit,
+    word: w.word,
+    phonetic: w.phonetic ?? "",
+    meaning: w.meaning ?? "",
+    pos: w.pos ?? null,
+    page: w.page ?? null,
+    owner_id: ownerId,
+    publisher: w.publisher ?? null,
+    grade: w.grade ?? null,
+    semester: w.semester ?? null,
   }));
-  const nextIds = Array.from(
-    new Set([...currentIds, ...created.map((w) => w.id)]),
-  );
-  await Promise.all([
-    ...created.map((word) => putJson(env, wordKey(ownerId, word.id), word)),
-    putJson(env, wordsIndexKey(ownerId), nextIds),
-  ]);
-  return created;
+  const created = await sbPost<WordRow>(env, "/words", rows);
+  return created.map(rowToWord);
 }
 
 export async function getWords(
   env: Env,
-  ownerId: number,
+  ownerId: number | null,
 ): Promise<WordRecord[]> {
-  const ids = await getJson<string[]>(env, wordsIndexKey(ownerId), []);
-  const words = await Promise.all(
-    ids.map(
-      (id) =>
-        env.VOCAB_KV.get(
-          wordKey(ownerId, id),
-          "json",
-        ) as Promise<WordRecord | null>,
-    ),
-  );
-  return words.filter((w): w is WordRecord => Boolean(w));
+  const filter =
+    ownerId === null ? "owner_id=is.null" : `owner_id=eq.${ownerId}`;
+  const rows = await sbGet<WordRow>(env, `/words?${filter}&order=unit.asc,word.asc`);
+  return rows.map(rowToWord);
 }
 
 export async function updateWord(
@@ -202,14 +313,32 @@ export async function updateWord(
   wordId: string,
   updates: Partial<Omit<WordRecord, "id" | "ownerId">>,
 ): Promise<WordRecord> {
-  const existing = (await env.VOCAB_KV.get(
-    wordKey(ownerId, wordId),
-    "json",
-  )) as WordRecord | null;
-  if (!existing) throw new Error("Word not found.");
-  const updated: WordRecord = { ...existing, ...updates };
-  await putJson(env, wordKey(ownerId, wordId), updated);
-  return updated;
+  const existing = await sbGet<WordRow>(
+    env,
+    `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`,
+  );
+  if (!existing[0]) throw new Error("Word not found.");
+  const patch: Record<string, unknown> = {};
+  if (updates.unit !== undefined) patch.unit = updates.unit;
+  if (updates.word !== undefined) patch.word = updates.word;
+  if (updates.phonetic !== undefined) patch.phonetic = updates.phonetic;
+  if (updates.meaning !== undefined) patch.meaning = updates.meaning;
+  if (updates.pos !== undefined) patch.pos = updates.pos;
+  if (updates.page !== undefined) patch.page = updates.page;
+  if (updates.publisher !== undefined) patch.publisher = updates.publisher;
+  if (updates.grade !== undefined) patch.grade = updates.grade;
+  if (updates.semester !== undefined) patch.semester = updates.semester;
+  const res = await sbFetch(
+    env,
+    `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+  if (!res.ok) throw new Error("Failed to update word.");
+  const updated = await sbGet<WordRow>(
+    env,
+    `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`,
+  );
+  return rowToWord(updated[0]);
 }
 
 export async function deleteWord(
@@ -217,12 +346,7 @@ export async function deleteWord(
   ownerId: number,
   wordId: string,
 ): Promise<void> {
-  const currentIds = await getJson<string[]>(env, wordsIndexKey(ownerId), []);
-  const nextIds = currentIds.filter((id) => id !== wordId);
-  await Promise.all([
-    env.VOCAB_KV.delete(wordKey(ownerId, wordId)),
-    putJson(env, wordsIndexKey(ownerId), nextIds),
-  ]);
+  await sbDelete(env, `/words?id=eq.${wordId}&owner_id=eq.${ownerId}`);
 }
 
 export async function deleteWords(
@@ -230,75 +354,55 @@ export async function deleteWords(
   ownerId: number,
   wordIds: string[],
 ): Promise<void> {
-  const currentIds = await getJson<string[]>(env, wordsIndexKey(ownerId), []);
-  const deleteSet = new Set(wordIds);
-  const nextIds = currentIds.filter((id) => !deleteSet.has(id));
-  await Promise.all([
-    ...wordIds.map((id) => env.VOCAB_KV.delete(wordKey(ownerId, id))),
-    putJson(env, wordsIndexKey(ownerId), nextIds),
-  ]);
+  if (wordIds.length === 0) return;
+  const ids = wordIds.map((id) => `"${id}"`).join(",");
+  await sbDelete(env, `/words?id=in.(${ids})&owner_id=eq.${ownerId}`);
 }
 
 export async function clearAllUserData(
   env: Env,
   userId: number,
 ): Promise<void> {
-  const wordIds = await getJson<string[]>(env, wordsIndexKey(userId), []);
-  const mistakeIds = await getJson<string[]>(env, mistakesIndexKey(userId), []);
+  // Delete user's words and mistakes (mistakes cascade from words, but also delete directly)
   await Promise.all([
-    ...wordIds.map((id) => env.VOCAB_KV.delete(wordKey(userId, id))),
-    ...mistakeIds.map((id) => env.VOCAB_KV.delete(mistakeKey(userId, id))),
-    env.VOCAB_KV.delete(wordsIndexKey(userId)),
-    env.VOCAB_KV.delete(mistakesIndexKey(userId)),
+    sbDelete(env, `/words?owner_id=eq.${userId}`),
+    sbDelete(env, `/mistakes?user_id=eq.${userId}`),
   ]);
 }
+
+// ── Mistake Repository ───────────────────────────────────────────────────────
 
 export async function getMistakes(
   env: Env,
   userId: number,
 ): Promise<MistakeRecord[]> {
-  const ids = await getJson<string[]>(env, mistakesIndexKey(userId), []);
-  const mistakes = await Promise.all(
-    ids.map(
-      (id) =>
-        env.VOCAB_KV.get(
-          mistakeKey(userId, id),
-          "json",
-        ) as Promise<MistakeRecord | null>,
-    ),
+  const rows = await sbGet<MistakeRow>(
+    env,
+    `/mistakes?user_id=eq.${userId}&order=id.asc`,
   );
-  return mistakes.filter((m): m is MistakeRecord => Boolean(m));
+  return rows.map(rowToMistake);
 }
 
 export async function addOrUpdateMistakes(
   env: Env,
   mistakes: Omit<MistakeRecord, "id">[],
 ): Promise<void> {
-  const byUser = new Map<number, Omit<MistakeRecord, "id">[]>();
-  mistakes.forEach((mistake) => {
-    byUser.set(mistake.userId, [
-      ...(byUser.get(mistake.userId) ?? []),
-      mistake,
-    ]);
+  if (mistakes.length === 0) return;
+  const rows = mistakes.map((m) => ({
+    word_id: m.wordId,
+    user_id: m.userId,
+    next_review_date: m.nextReviewDate,
+    review_count: m.reviewCount,
+  }));
+  const res = await sbFetch(env, "/mistakes", {
+    method: "POST",
+    body: JSON.stringify(rows),
+    headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
   });
-  await Promise.all(
-    Array.from(byUser.entries()).map(async ([userId, userMistakes]) => {
-      const currentIds = await getJson<string[]>(
-        env,
-        mistakesIndexKey(userId),
-        [],
-      );
-      const nextIds = Array.from(
-        new Set([...currentIds, ...userMistakes.map((m) => m.wordId)]),
-      );
-      await Promise.all([
-        ...userMistakes.map((mistake) =>
-          putJson(env, mistakeKey(userId, mistake.wordId), mistake),
-        ),
-        putJson(env, mistakesIndexKey(userId), nextIds),
-      ]);
-    }),
-  );
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase upsert mistakes failed: ${err}`);
+  }
 }
 
 export async function removeMistake(
@@ -306,10 +410,5 @@ export async function removeMistake(
   userId: number,
   wordId: string,
 ): Promise<void> {
-  const currentIds = await getJson<string[]>(env, mistakesIndexKey(userId), []);
-  const nextIds = currentIds.filter((id) => id !== wordId);
-  await Promise.all([
-    env.VOCAB_KV.delete(mistakeKey(userId, wordId)),
-    putJson(env, mistakesIndexKey(userId), nextIds),
-  ]);
+  await sbDelete(env, `/mistakes?user_id=eq.${userId}&word_id=eq.${wordId}`);
 }

@@ -301,19 +301,28 @@ async function handleGetWords(request: Request, env: Env): Promise<Response> {
     return jsonOk({ words });
   }
 
-  // 普通用户：先拉取 admin (id=1) 的共享词库，再合并自己的词
-  const adminId = 1;
   if (isAdmin(session)) {
-    const words = await repoGetWords(env, session.userId);
+    // Admin sees shared words (owner_id = NULL) + their own words
+    const [sharedWords, adminWords] = await Promise.all([
+      repoGetWords(env, null),
+      repoGetWords(env, session.userId),
+    ]);
+    const seen = new Set<string>();
+    const words = [...sharedWords, ...adminWords].filter((w) => {
+      if (seen.has(w.id)) return false;
+      seen.add(w.id);
+      return true;
+    });
     return jsonOk({ words });
   }
 
-  const [adminWords, userWords] = await Promise.all([
-    repoGetWords(env, adminId),
+  // Regular user: shared words (owner_id = NULL) + their own words
+  const [sharedWords, userWords] = await Promise.all([
+    repoGetWords(env, null),
     repoGetWords(env, session.userId),
   ]);
   const seen = new Set<string>();
-  const words = [...adminWords, ...userWords].filter((w) => {
+  const words = [...sharedWords, ...userWords].filter((w) => {
     if (seen.has(w.id)) return false;
     seen.add(w.id);
     return true;

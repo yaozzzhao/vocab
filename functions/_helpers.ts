@@ -3,7 +3,8 @@
  */
 
 export interface Env {
-  VOCAB_KV: KVNamespace;
+  SUPABASE_URL: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
   SESSION_SECRET: string;
   ADMIN_INITIAL_PASSWORD: string;
   GEMINI_API_KEY: string;
