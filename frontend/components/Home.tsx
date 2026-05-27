@@ -1,12 +1,15 @@
 import React, { useMemo, useState } from "react";
-import { BookOpen, BrainCircuit, Sparkles, ChevronRight, Filter, Trophy, Flame, Play, RotateCcw } from "lucide-react";
-import { Word, MistakeRecord, TestConfig } from "../types";
+import { BookOpen, BrainCircuit, Sparkles, ChevronRight, Filter, Trophy, Flame, Play, RotateCcw, ArrowLeft } from "lucide-react";
+import { Word, MistakeRecord, TestConfig, PausedTest } from "../types";
 
 interface HomeProps {
   words: Word[];
   mistakes: MistakeRecord[];
   onStartTest: (config: TestConfig) => void;
   onNavigateManage: () => void;
+  onNavigateErrorBook: () => void;
+  pausedTest: PausedTest | null;
+  onResumeTest: () => void;
   isAdmin?: boolean;
 }
 
@@ -21,9 +24,12 @@ export const Home: React.FC<HomeProps> = ({
   mistakes,
   onStartTest,
   onNavigateManage,
+  onNavigateErrorBook,
+  pausedTest,
+  onResumeTest,
   isAdmin = false,
 }) => {
-  const [showFilter, setShowFilter] = useState(false);
+  const [showFilter, setShowFilter] = useState(true);
   const [filter, setFilter] = useState<FilterState>({
     publisher: "",
     grade: null,
@@ -129,16 +135,19 @@ export const Home: React.FC<HomeProps> = ({
             <Flame className="w-4 h-4 text-amber-500" />
             <span className="text-sm font-bold text-amber-700">{dueReviews.length}</span>
           </div>
-          <div className="flex items-center gap-1.5 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-200">
+          <button
+            onClick={onNavigateErrorBook}
+            className="flex items-center gap-1.5 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-200 hover:bg-brand-100 hover:border-brand-300 transition-colors cursor-pointer"
+          >
             <BrainCircuit className="w-4 h-4 text-brand-500" />
             <span className="text-sm font-bold text-brand-700">{totalMistakes}</span>
-          </div>
+          </button>
         </div>
         {hasMetadata && (
           <button
             onClick={() => setShowFilter((v) => !v)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-              isFiltered || showFilter
+              showFilter
                 ? "bg-brand-500 text-white shadow-bubble"
                 : "bg-stone-100 text-stone-600 hover:bg-stone-200"
             }`}
@@ -148,6 +157,29 @@ export const Home: React.FC<HomeProps> = ({
           </button>
         )}
       </div>
+
+      {/* Resume Test Card */}
+      {pausedTest && (
+        <div className="mb-6 p-5 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 shadow-card animate-slide-down">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+              <ArrowLeft className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-stone-800">Test Paused</p>
+              <p className="text-sm text-stone-500">
+                {pausedTest.config.mode === "review" ? "Review" : pausedTest.config.unitName} &middot; {pausedTest.currentIndex + 1} of {pausedTest.questions.length} completed
+              </p>
+            </div>
+            <button
+              onClick={onResumeTest}
+              className="px-5 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600 active:scale-[0.98] transition-all shadow-bubble shrink-0"
+            >
+              Resume
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filter Panel */}
       {showFilter && hasMetadata && (

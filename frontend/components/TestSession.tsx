@@ -11,8 +11,9 @@ import {
   ChevronLeft,
   HelpCircle,
   ThumbsDown,
+  X,
 } from "lucide-react";
-import { Word, TestConfig } from "../types";
+import { Word, TestConfig, PausedTest, MistakeType } from "../types";
 import { shuffleArray, normalizeWord } from "../utils";
 
 const WordInputDisplay: React.FC<{
@@ -70,7 +71,7 @@ const WordInputDisplay: React.FC<{
 
   return (
     <div
-      className={`flex flex-nowrap justify-start items-center gap-1 overflow-x-auto pb-2 scrollbar-hide ${isShaking ? "animate-shake" : ""}`}
+      className={`flex flex-nowrap justify-center items-center gap-1 overflow-x-auto pb-2 scrollbar-hide ${isShaking ? "animate-shake" : ""}`}
       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
     >
       {elements}
@@ -81,8 +82,10 @@ const WordInputDisplay: React.FC<{
 interface TestSessionProps {
   config: TestConfig;
   onFinish: (results: { wordId: string; isCorrect: boolean }[]) => void;
-  onAddMistakes: (wordIds: string[]) => void;
+  onAddMistakes: (wordIds: string[], mistakeType?: MistakeType) => void;
   onNavigateHome: () => void;
+  initialState?: PausedTest;
+  onPause?: (state: PausedTest) => void;
 }
 
 export const TestSession: React.FC<TestSessionProps> = ({
@@ -90,13 +93,19 @@ export const TestSession: React.FC<TestSessionProps> = ({
   onFinish,
   onAddMistakes,
   onNavigateHome,
+  initialState,
+  onPause,
 }) => {
-  const [questions, setQuestions] = useState<Word[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [questions, setQuestions] = useState<Word[]>(
+    () => initialState?.questions ?? [],
+  );
+  const [currentIndex, setCurrentIndex] = useState(
+    initialState?.currentIndex ?? 0,
+  );
   const [inputValue, setInputValue] = useState("");
   const [answers, setAnswers] = useState<
     Record<string, { input: string; isCorrect: boolean }>
-  >({});
+  >(initialState?.answers ?? {});
   const [isFinished, setIsFinished] = useState(false);
 
   const [attemptsLeft, setAttemptsLeft] = useState(3);
@@ -162,13 +171,15 @@ export const TestSession: React.FC<TestSessionProps> = ({
   const currentWord = questions[currentIndex];
 
   useEffect(() => {
-    const shuffled = shuffleArray(config.words);
-    setQuestions(shuffled);
-    setCurrentIndex(0);
-    setAnswers({});
-    setIsFinished(false);
-    setAttemptsLeft(3);
-    setInputValue("");
+    if (!initialState) {
+      const shuffled = shuffleArray(config.words);
+      setQuestions(shuffled);
+      setCurrentIndex(0);
+      setAnswers({});
+      setIsFinished(false);
+      setAttemptsLeft(3);
+      setInputValue("");
+    }
   }, [config]);
 
   useEffect(() => {
@@ -195,14 +206,14 @@ export const TestSession: React.FC<TestSessionProps> = ({
     setShowCorrectAnswer(false);
   };
 
-  const markAsWrong = () => {
+  const markAsWrong = (mistakeType?: MistakeType) => {
     if (!currentWord || feedbackState !== "idle" || showCorrectAnswer) return;
     setAnswers((prev) => ({
       ...prev,
       [currentWord.id]: { input: inputValue || "(skipped)", isCorrect: false },
     }));
     if (config.mode === "unit") {
-      onAddMistakes([currentWord.id]);
+      onAddMistakes([currentWord.id], mistakeType);
     }
     setShowCorrectAnswer(true);
     playSound("error");
@@ -255,7 +266,7 @@ export const TestSession: React.FC<TestSessionProps> = ({
           [currentWord.id]: { input: inputValue.trim(), isCorrect: false },
         }));
         if (config.mode === "unit") {
-          onAddMistakes([currentWord.id]);
+          onAddMistakes([currentWord.id], "wrong");
         }
         setShowCorrectAnswer(true);
         setTimeout(() => {
@@ -396,8 +407,33 @@ export const TestSession: React.FC<TestSessionProps> = ({
 
   const progress = ((currentIndex + 1) / questions.length) * 100;
 
+  const handlePause = () => {
+    onPause?.({
+      config,
+      questions,
+      currentIndex,
+      answers,
+    });
+    onNavigateHome();
+  };
+
   return (
     <div className="max-w-lg mx-auto">
+      {/* Top bar */}
+      <div className="flex items-center justify-between mb-6">
+        <button
+          onClick={handlePause}
+          className="flex items-center gap-1.5 text-stone-400 hover:text-stone-600 transition-colors"
+          title="Save & exit"
+        >
+          <X className="w-5 h-5" />
+          <span className="text-sm font-medium">Exit</span>
+        </button>
+        <span className="text-xs text-stone-400 font-medium bg-stone-100 px-2.5 py-1 rounded-full">
+          {config.mode === "review" ? "Review" : config.unitName}
+        </span>
+      </div>
+
       {/* Progress Bar */}
       <div className="mb-8">
         <div className="flex items-center justify-between text-sm text-stone-400 mb-2">
@@ -409,7 +445,9 @@ export const TestSession: React.FC<TestSessionProps> = ({
                 {wrongCount} wrong
               </span>
             )}
-            <span>{config.mode === "review" ? "Review" : config.unitName}</span>
+            {answeredCount > 0 && (
+              <span className="text-stone-400 text-xs">{answeredCount} done</span>
+            )}
           </div>
         </div>
         <div className="w-full bg-stone-200 rounded-full h-2 overflow-hidden">
@@ -509,7 +547,7 @@ export const TestSession: React.FC<TestSessionProps> = ({
               type="button"
               onClick={() => {
                 setInputValue("");
-                markAsWrong();
+                markAsWrong("dont_know");
               }}
               className="flex-1 py-2.5 flex items-center justify-center gap-2 bg-rose-50 text-rose-600 rounded-xl font-medium text-sm border border-rose-200 hover:bg-rose-100 active:scale-[0.97] transition-all"
             >
@@ -522,7 +560,7 @@ export const TestSession: React.FC<TestSessionProps> = ({
                 if (!inputValue.trim()) {
                   setInputValue("~");
                 }
-                markAsWrong();
+                markAsWrong("not_sure");
               }}
               className="flex-1 py-2.5 flex items-center justify-center gap-2 bg-amber-50 text-amber-600 rounded-xl font-medium text-sm border border-amber-200 hover:bg-amber-100 active:scale-[0.97] transition-all"
             >

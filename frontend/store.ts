@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Word, MistakeRecord, User } from "./types";
+import { Word, MistakeRecord, User, MistakeType } from "./types";
 import { getNextReviewDate, normalizeWord } from "./utils";
 import * as db from "./db";
 
@@ -61,7 +61,7 @@ export const useAppStore = (currentUser: User | null) => {
   }, [currentUser, fetchData]);
 
   const addMistakesToStore = useCallback(
-    async (wordIds: string[]) => {
+    async (wordIds: string[], mistakeType?: MistakeType) => {
       if (!currentUser) return;
 
       const newMistakesToAdd = wordIds.map((id) => ({
@@ -69,6 +69,7 @@ export const useAppStore = (currentUser: User | null) => {
         userId: currentUser.id,
         reviewCount: 0,
         nextReviewDate: getNextReviewDate(0),
+        mistakeType: mistakeType ?? 'wrong' as MistakeType,
       }));
 
       // 乐观更新 UI

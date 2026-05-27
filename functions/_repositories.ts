@@ -26,12 +26,15 @@ export interface WordRecord {
   semester?: string;
 }
 
+export type MistakeType = "wrong" | "dont_know" | "not_sure";
+
 export interface MistakeRecord {
   id?: number;
   wordId: string;
   userId: number;
   nextReviewDate: number;
   reviewCount: number;
+  mistakeType?: MistakeType;
 }
 
 // ── Supabase REST helpers ────────────────────────────────────────────────────
@@ -51,10 +54,15 @@ async function sbFetch(
   options: RequestInit = {},
 ): Promise<Response> {
   const url = `${env.SUPABASE_URL}/rest/v1${path}`;
-  return fetch(url, {
-    ...options,
-    headers: { ...supabaseHeaders(env), ...(options.headers as Record<string, string> ?? {}) },
-  });
+  const headers: Record<string, string> = {
+    ...supabaseHeaders(env),
+    ...(options.headers as Record<string, string> ?? {}),
+  };
+  // Bypass PostgREST default 1024-row limit for GET requests
+  if (!options.method || options.method === "GET") {
+    headers["Range"] = "0-99999999";
+  }
+  return fetch(url, { ...options, headers });
 }
 
 async function sbGet<T>(env: Env, path: string): Promise<T[]> {
@@ -132,6 +140,7 @@ interface MistakeRow {
   user_id: number;
   next_review_date: number;
   review_count: number;
+  mistake_type?: string;
 }
 
 // ── Converters ───────────────────────────────────────────────────────────────
@@ -173,6 +182,7 @@ function rowToMistake(row: MistakeRow): MistakeRecord {
     userId: row.user_id,
     nextReviewDate: row.next_review_date,
     reviewCount: row.review_count,
+    mistakeType: row.mistake_type as MistakeType ?? 'wrong',
   };
 }
 
@@ -396,6 +406,7 @@ export async function addOrUpdateMistakes(
     user_id: m.userId,
     next_review_date: m.nextReviewDate,
     review_count: m.reviewCount,
+    mistake_type: m.mistakeType ?? 'wrong',
   }));
   const res = await sbFetch(env, "/mistakes", {
     method: "POST",

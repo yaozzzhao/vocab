@@ -18,12 +18,15 @@ export interface Word {
   semester?: string;
 }
 
+export type MistakeType = "wrong" | "dont_know" | "not_sure";
+
 export interface MistakeRecord {
   id?: number;
   wordId: string;
   userId: number;
   nextReviewDate: number;
   reviewCount: number;
+  mistakeType?: MistakeType;
 }
 
 export type ViewState =
@@ -77,4 +80,11 @@ export interface StatUpdateResult {
   stats: UserStats;
   xpEarned: number;
   newAchievements: { id: string; name: string; icon: string }[];
+}
+
+export interface PausedTest {
+  config: TestConfig;
+  questions: Word[];
+  currentIndex: number;
+  answers: Record<string, { input: string; isCorrect: boolean }>;
 }

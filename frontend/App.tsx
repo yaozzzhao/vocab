@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "./store";
-import { ViewState, TestConfig, User, UserStats, Word } from "./types";
+import { ViewState, TestConfig, User, UserStats, Word, PausedTest } from "./types";
 import { Home } from "./components/Home";
 import { Manager } from "./components/Manager";
 import { TestSession } from "./components/TestSession";
@@ -26,6 +26,7 @@ const App: React.FC = () => {
     { id: string; message: string; icon: string }[]
   >([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [pausedTest, setPausedTest] = useState<PausedTest | null>(null);
 
   const {
     words,
@@ -77,6 +78,31 @@ const App: React.FC = () => {
     setAchievementToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const dueReviews = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const today = now.getTime();
+    return mistakes.filter((m) => m.nextReviewDate <= today).length;
+  }, [mistakes]);
+
+  const unitsCount = useMemo(() => {
+    const unitSet = new Set(words.map((w) => w.unit));
+    return unitSet.size;
+  }, [words]);
+
+  const handleSidebarReview = () => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const reviewWords = mistakes
+      .filter((m) => m.nextReviewDate <= now.getTime())
+      .map((m) => words.find((w) => w.id === m.wordId))
+      .filter((w): w is Word => w !== undefined);
+    if (reviewWords.length > 0) {
+      setTestConfig({ mode: "review", words: reviewWords });
+      setCurrentView("test");
+    }
+  };
+
   if (!currentUser) {
     return <Login onLogin={handleLogin} />;
   }
@@ -93,8 +119,26 @@ const App: React.FC = () => {
   }
 
   const handleStartTest = (config: TestConfig) => {
+    setPausedTest(null);
     setTestConfig(config);
     setCurrentView("test");
+  };
+
+  const handlePauseTest = (state: PausedTest) => {
+    setPausedTest(state);
+    setCurrentView("home");
+    setTestConfig(null);
+  };
+
+  const handleResumeTest = () => {
+    if (!pausedTest) return;
+    setTestConfig(pausedTest.config);
+    setCurrentView("test");
+  };
+
+  const navigateToHome = () => {
+    setCurrentView("home");
+    setShowUserMenu(false);
   };
 
   const handleTestFinish = async (
@@ -137,11 +181,7 @@ const App: React.FC = () => {
 
     setCurrentView("home");
     setTestConfig(null);
-  };
-
-  const navigateToHome = () => {
-    setCurrentView("home");
-    setShowUserMenu(false);
+    setPausedTest(null);
   };
 
   const navigateTo = (view: ViewState) => {
@@ -150,31 +190,6 @@ const App: React.FC = () => {
   };
 
   const isTestView = currentView === "test";
-
-  const dueReviews = useMemo(() => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const today = now.getTime();
-    return mistakes.filter((m) => m.nextReviewDate <= today).length;
-  }, [mistakes]);
-
-  const handleSidebarReview = () => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const reviewWords = mistakes
-      .filter((m) => m.nextReviewDate <= now.getTime())
-      .map((m) => words.find((w) => w.id === m.wordId))
-      .filter((w): w is Word => w !== undefined);
-    if (reviewWords.length > 0) {
-      setTestConfig({ mode: "review", words: reviewWords });
-      setCurrentView("test");
-    }
-  };
-
-  const unitsCount = useMemo(() => {
-    const unitSet = new Set(words.map((w) => w.unit));
-    return unitSet.size;
-  }, [words]);
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -288,13 +303,16 @@ const App: React.FC = () => {
         )}
 
         {/* Main Content Area */}
-        <main className={`flex-1 min-w-0 px-4 py-6 sm:py-8 ${!isTestView ? '' : 'max-w-lg mx-auto'}`}>
+        <main className={`flex-1 min-w-0 px-4 py-6 sm:py-8 ${isTestView ? 'bg-gradient-to-b from-brand-50/50 to-stone-50' : ''}`}>
           {currentView === "home" && (
             <Home
               words={words}
               mistakes={mistakes}
               onStartTest={handleStartTest}
               onNavigateManage={() => setCurrentView("manage")}
+              onNavigateErrorBook={() => navigateTo("error_book")}
+              pausedTest={pausedTest}
+              onResumeTest={handleResumeTest}
               isAdmin={currentUser.role === "admin"}
             />
           )}
@@ -312,7 +330,9 @@ const App: React.FC = () => {
               config={testConfig}
               onFinish={handleTestFinish}
               onAddMistakes={addMistakes}
-              onNavigateHome={() => setCurrentView("home")}
+              onNavigateHome={navigateToHome}
+              initialState={pausedTest ?? undefined}
+              onPause={handlePauseTest}
             />
           )}
 
@@ -326,6 +346,7 @@ const App: React.FC = () => {
               mistakes={mistakes}
               onStartTest={handleStartTest}
               onRemoveMistake={removeMistake}
+              onNavigateHome={navigateToHome}
             />
           )}
 

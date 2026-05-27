@@ -1,23 +1,48 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Word, MistakeRecord, TestConfig } from '../types';
-import { BookX, Trash2, BrainCircuit, CheckCircle2, Play, RotateCcw, Volume2 } from 'lucide-react';
+import { BookX, Trash2, BrainCircuit, CheckCircle2, Play, RotateCcw, Volume2, ChevronLeft, HelpCircle, ThumbsDown, XCircle, Filter } from 'lucide-react';
 
 interface ErrorBookProps {
   words: Word[];
   mistakes: MistakeRecord[];
   onStartTest: (config: TestConfig) => void;
   onRemoveMistake: (wordId: string) => void;
+  onNavigateHome: () => void;
 }
 
-export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTest, onRemoveMistake }) => {
+export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTest, onRemoveMistake, onNavigateHome }) => {
+  const [showFilter, setShowFilter] = useState(true);
+  const [filterUnit, setFilterUnit] = useState("");
+
   const mistakenWords = useMemo(() => {
     const mistakeWordIds = new Set(mistakes.map(m => m.wordId));
     return words.filter(w => mistakeWordIds.has(w.id));
   }, [words, mistakes]);
 
+  const availableUnits = useMemo(() => {
+    const set = new Set<string>();
+    mistakenWords.forEach((w) => { if (w.unit) set.add(w.unit); });
+    return Array.from(set).sort();
+  }, [mistakenWords]);
+
+  const hasFilter = availableUnits.length > 0;
+
+  const filteredWords = useMemo(() => {
+    if (!filterUnit) return mistakenWords;
+    return mistakenWords.filter((w) => w.unit === filterUnit);
+  }, [mistakenWords, filterUnit]);
+
+  const mistakeTypeMap = useMemo(() => {
+    const map = new Map<string, string>();
+    mistakes.forEach((m) => {
+      map.set(m.wordId, m.mistakeType ?? 'wrong');
+    });
+    return map;
+  }, [mistakes]);
+
   const handleStartPractice = () => {
-    if (mistakenWords.length > 0) {
-      onStartTest({ mode: 'review', words: mistakenWords });
+    if (filteredWords.length > 0) {
+      onStartTest({ mode: 'review', words: filteredWords });
     }
   };
 
@@ -30,14 +55,41 @@ export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTe
     }
   };
 
+  const typeConfig: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string }> = {
+    wrong: {
+      label: 'Wrong',
+      icon: <XCircle className="w-3.5 h-3.5" />,
+      color: 'text-rose-600',
+      bg: 'bg-rose-50',
+    },
+    dont_know: {
+      label: "Don't Know",
+      icon: <HelpCircle className="w-3.5 h-3.5" />,
+      color: 'text-amber-600',
+      bg: 'bg-amber-50',
+    },
+    not_sure: {
+      label: 'Not Sure',
+      icon: <ThumbsDown className="w-3.5 h-3.5" />,
+      color: 'text-orange-600',
+      bg: 'bg-orange-50',
+    },
+  };
+
   return (
-    <div className="max-w-lg mx-auto pb-24 sm:pb-8">
+    <div className="pb-24 w-full max-w-2xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
+        <button
+          onClick={onNavigateHome}
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-stone-100 text-stone-500 hover:bg-stone-200 hover:text-stone-700 transition-all"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
         <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center">
           <BookX className="w-5 h-5 text-rose-500" />
         </div>
-        <div>
+        <div className="flex-1">
           <h2 className="text-xl font-bold text-stone-800">My Error Book</h2>
           <p className="text-sm text-stone-400">{mistakenWords.length} words to review</p>
         </div>
@@ -53,21 +105,54 @@ export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTe
         </div>
       ) : (
         <>
+          {/* Filter Bar */}
+          {hasFilter && (
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => { setFilterUnit(""); setShowFilter(true); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    !filterUnit
+                      ? 'bg-brand-500 text-white shadow-sm'
+                      : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
+                  }`}
+                >
+                  All
+                </button>
+                {availableUnits.map((unit) => (
+                  <button
+                    key={unit}
+                    onClick={() => setFilterUnit(unit)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                      filterUnit === unit
+                        ? 'bg-brand-500 text-white shadow-sm'
+                        : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
+                    }`}
+                  >
+                    {unit}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Practice Button */}
           <button
             onClick={handleStartPractice}
             className="w-full py-3.5 bg-brand-500 text-white rounded-2xl font-semibold text-base flex items-center justify-center gap-2 hover:bg-brand-600 active:scale-[0.98] transition-all shadow-bubble mb-6"
           >
             <Play className="w-5 h-5" />
-            Practice All {mistakenWords.length} Words
+            Practice {filteredWords.length} Words
           </button>
 
           {/* Word List */}
           <div className="space-y-2">
-            {mistakenWords.map((word) => {
+            {filteredWords.map((word) => {
               const mistake = mistakes.find((m) => m.wordId === word.id);
               const nextReview = mistake ? new Date(mistake.nextReviewDate) : null;
               const isDue = nextReview && nextReview.getTime() <= Date.now();
+              const mtype = mistakeTypeMap.get(word.id) ?? 'wrong';
+              const tc = typeConfig[mtype] ?? typeConfig.wrong;
 
               return (
                 <div
@@ -86,11 +171,22 @@ export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTe
                       >
                         <Volume2 className="w-3.5 h-3.5" />
                       </button>
+                      {/* Mistake type badge */}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${tc.bg} ${tc.color}`}>
+                        {tc.icon}
+                        {tc.label}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm mt-0.5">
                       <span className="text-stone-400">{word.phonetic}</span>
                       <span className="text-stone-300">·</span>
                       <span className="text-stone-600">{word.meaning}</span>
+                      {word.unit && (
+                        <>
+                          <span className="text-stone-300">·</span>
+                          <span className="text-stone-400 text-xs">{word.unit}</span>
+                        </>
+                      )}
                     </div>
                     {nextReview && (
                       <p className={`text-xs mt-1 ${isDue ? 'text-amber-500 font-medium' : 'text-stone-400'}`}>
