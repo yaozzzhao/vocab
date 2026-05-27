@@ -9,6 +9,8 @@ import {
   Volume2,
   Sparkles,
   ChevronLeft,
+  HelpCircle,
+  ThumbsDown,
 } from "lucide-react";
 import { Word, TestConfig } from "../types";
 import { shuffleArray, normalizeWord } from "../utils";
@@ -68,7 +70,8 @@ const WordInputDisplay: React.FC<{
 
   return (
     <div
-      className={`flex flex-wrap justify-center items-center gap-1 ${isShaking ? "animate-shake" : ""}`}
+      className={`flex flex-nowrap justify-start items-center gap-1 overflow-x-auto pb-2 scrollbar-hide ${isShaking ? "animate-shake" : ""}`}
+      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
     >
       {elements}
     </div>
@@ -177,6 +180,9 @@ export const TestSession: React.FC<TestSessionProps> = ({
     }
   }, [feedbackState, isFinished, currentIndex]);
 
+  const wrongCount = Object.values(answers).filter((a) => !a.isCorrect).length;
+  const answeredCount = Object.keys(answers).length;
+
   const moveToNextWord = () => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
@@ -187,6 +193,22 @@ export const TestSession: React.FC<TestSessionProps> = ({
     setAttemptsLeft(3);
     setFeedbackState("idle");
     setShowCorrectAnswer(false);
+  };
+
+  const markAsWrong = () => {
+    if (!currentWord || feedbackState !== "idle" || showCorrectAnswer) return;
+    setAnswers((prev) => ({
+      ...prev,
+      [currentWord.id]: { input: inputValue || "(skipped)", isCorrect: false },
+    }));
+    if (config.mode === "unit") {
+      onAddMistakes([currentWord.id]);
+    }
+    setShowCorrectAnswer(true);
+    playSound("error");
+    setTimeout(() => {
+      moveToNextWord();
+    }, 1500);
   };
 
   const testableWord = currentWord
@@ -380,7 +402,15 @@ export const TestSession: React.FC<TestSessionProps> = ({
       <div className="mb-8">
         <div className="flex items-center justify-between text-sm text-stone-400 mb-2">
           <span>{currentIndex + 1} of {questions.length}</span>
-          <span>{config.mode === "review" ? "Review" : config.unitName}</span>
+          <div className="flex items-center gap-3">
+            {wrongCount > 0 && (
+              <span className="text-rose-500 font-medium flex items-center gap-1">
+                <XCircle className="w-3.5 h-3.5" />
+                {wrongCount} wrong
+              </span>
+            )}
+            <span>{config.mode === "review" ? "Review" : config.unitName}</span>
+          </div>
         </div>
         <div className="w-full bg-stone-200 rounded-full h-2 overflow-hidden">
           <div
@@ -471,9 +501,39 @@ export const TestSession: React.FC<TestSessionProps> = ({
             <p className="text-stone-400 text-sm">Type the word above. Press Enter to submit.</p>
           )}
         </div>
+
+        {/* Quick action buttons */}
+        {feedbackState === "idle" && !showCorrectAnswer && (
+          <div className="flex gap-3 mt-6">
+            <button
+              type="button"
+              onClick={() => {
+                setInputValue("");
+                markAsWrong();
+              }}
+              className="flex-1 py-2.5 flex items-center justify-center gap-2 bg-rose-50 text-rose-600 rounded-xl font-medium text-sm border border-rose-200 hover:bg-rose-100 active:scale-[0.97] transition-all"
+            >
+              <HelpCircle className="w-4 h-4" />
+              Don't Know
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!inputValue.trim()) {
+                  setInputValue("~");
+                }
+                markAsWrong();
+              }}
+              className="flex-1 py-2.5 flex items-center justify-center gap-2 bg-amber-50 text-amber-600 rounded-xl font-medium text-sm border border-amber-200 hover:bg-amber-100 active:scale-[0.97] transition-all"
+            >
+              <ThumbsDown className="w-4 h-4" />
+              Not Sure
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Hint: Attempts remaining */}
+      {/* Attempts remaining */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1">
           {[1, 2, 3].map((i) => (

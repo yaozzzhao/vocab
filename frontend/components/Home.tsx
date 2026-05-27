@@ -121,7 +121,7 @@ export const Home: React.FC<HomeProps> = ({
   }
 
   return (
-    <div className="max-w-lg mx-auto pb-24">
+    <div className="pb-24 w-full max-w-2xl mx-auto">
       {/* Streak & Stats Bar */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">

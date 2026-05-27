@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "./store";
-import { ViewState, TestConfig, User, UserStats } from "./types";
+import { ViewState, TestConfig, User, UserStats, Word } from "./types";
 import { Home } from "./components/Home";
 import { Manager } from "./components/Manager";
 import { TestSession } from "./components/TestSession";
@@ -9,6 +9,7 @@ import { UserManagement } from "./components/UserManagement";
 import { ErrorBook } from "./components/ErrorBook";
 import { WordLibrary } from "./components/WordLibrary";
 import { GamificationHub, XpPopup } from "./components/GamificationHub";
+import { LeftSidebar, RightSidebar } from "./components/Sidebar";
 import { LogOut, Users, BookX, Library, Trophy, HomeIcon, Settings, Sparkles, ChevronDown } from "lucide-react";
 import { clearSession, getUserStats, updateUserStats } from "./db";
 
@@ -150,12 +151,37 @@ const App: React.FC = () => {
 
   const isTestView = currentView === "test";
 
+  const dueReviews = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const today = now.getTime();
+    return mistakes.filter((m) => m.nextReviewDate <= today).length;
+  }, [mistakes]);
+
+  const handleSidebarReview = () => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const reviewWords = mistakes
+      .filter((m) => m.nextReviewDate <= now.getTime())
+      .map((m) => words.find((w) => w.id === m.wordId))
+      .filter((w): w is Word => w !== undefined);
+    if (reviewWords.length > 0) {
+      setTestConfig({ mode: "review", words: reviewWords });
+      setCurrentView("test");
+    }
+  };
+
+  const unitsCount = useMemo(() => {
+    const unitSet = new Set(words.map((w) => w.unit));
+    return unitSet.size;
+  }, [words]);
+
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
       {/* Thin Top Bar - Duolingo style */}
       {!isTestView && (
         <header className="bg-white/90 backdrop-blur-md border-b border-stone-200 sticky top-0 z-20">
-          <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
             <button onClick={navigateToHome} className="flex items-center gap-2">
               <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">V</span>
@@ -252,52 +278,76 @@ const App: React.FC = () => {
         </header>
       )}
 
-      {/* Main Content */}
-      <main className="flex-1 w-full px-4 py-6 sm:py-8 max-w-4xl mx-auto">
-        {currentView === "home" && (
-          <Home
-            words={words}
-            mistakes={mistakes}
-            onStartTest={handleStartTest}
-            onNavigateManage={() => setCurrentView("manage")}
-            isAdmin={currentUser.role === "admin"}
-          />
+      {/* Main Content with Sidebars */}
+      <div className="flex-1 flex max-w-7xl mx-auto w-full">
+        {/* Left Sidebar - Desktop */}
+        {!isTestView && (
+          <aside className="hidden lg:block w-60 shrink-0 border-r border-stone-200 p-4 overflow-y-auto">
+            <LeftSidebar user={currentUser} stats={userStats} />
+          </aside>
         )}
 
-        {currentView === "manage" && (
-          <Manager
-            onAddWords={addWords}
-            onClearAll={clearAllData}
-            totalWords={words.length}
-          />
-        )}
+        {/* Main Content Area */}
+        <main className={`flex-1 min-w-0 px-4 py-6 sm:py-8 ${!isTestView ? '' : 'max-w-lg mx-auto'}`}>
+          {currentView === "home" && (
+            <Home
+              words={words}
+              mistakes={mistakes}
+              onStartTest={handleStartTest}
+              onNavigateManage={() => setCurrentView("manage")}
+              isAdmin={currentUser.role === "admin"}
+            />
+          )}
 
-        {currentView === "test" && testConfig && (
-          <TestSession
-            config={testConfig}
-            onFinish={handleTestFinish}
-            onAddMistakes={addMistakes}
-            onNavigateHome={() => setCurrentView("home")}
-          />
-        )}
+          {currentView === "manage" && (
+            <Manager
+              onAddWords={addWords}
+              onClearAll={clearAllData}
+              totalWords={words.length}
+            />
+          )}
 
-        {currentView === "user_management" && currentUser.role === "admin" && (
-          <UserManagement />
-        )}
+          {currentView === "test" && testConfig && (
+            <TestSession
+              config={testConfig}
+              onFinish={handleTestFinish}
+              onAddMistakes={addMistakes}
+              onNavigateHome={() => setCurrentView("home")}
+            />
+          )}
 
-        {currentView === "error_book" && (
-          <ErrorBook
-            words={words}
-            mistakes={mistakes}
-            onStartTest={handleStartTest}
-            onRemoveMistake={removeMistake}
-          />
-        )}
+          {currentView === "user_management" && currentUser.role === "admin" && (
+            <UserManagement />
+          )}
 
-        {currentView === "word_library" && currentUser.role === "admin" && (
-          <WordLibrary currentUserId={currentUser.id} />
+          {currentView === "error_book" && (
+            <ErrorBook
+              words={words}
+              mistakes={mistakes}
+              onStartTest={handleStartTest}
+              onRemoveMistake={removeMistake}
+            />
+          )}
+
+          {currentView === "word_library" && currentUser.role === "admin" && (
+            <WordLibrary currentUserId={currentUser.id} />
+          )}
+        </main>
+
+        {/* Right Sidebar - Desktop */}
+        {!isTestView && (
+          <aside className="hidden xl:block w-60 shrink-0 border-l border-stone-200 p-4 overflow-y-auto">
+            <RightSidebar
+              view={currentView}
+              totalWords={words.length}
+              totalMistakes={mistakes.length}
+              dueReviews={dueReviews}
+              unitsCount={unitsCount}
+              onStartReview={handleSidebarReview}
+            />
+          </aside>
         )}
-      </main>
+      </div>
 
       {/* Bottom Tab Bar - Mobile */}
       {!isTestView && (
