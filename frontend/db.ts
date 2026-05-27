@@ -62,16 +62,53 @@ export async function login(
 export async function register(
   username: string,
   password: string,
+  securityQuestion?: string,
+  securityAnswer?: string,
 ): Promise<{ user: User; token: string }> {
   const result = await apiFetch<{ user: User; token: string }>(
     "/api/auth/register",
     {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, securityQuestion, securityAnswer }),
     },
   );
   setSession(result.user, result.token);
   return result;
+}
+
+export async function getSecurityQuestions(): Promise<string[]> {
+  const result = await apiFetch<{ questions: string[] }>("/api/auth/security-questions");
+  return result.questions;
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await apiFetch("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export async function getSecurityQuestionForUser(
+  username: string,
+): Promise<{ question: string; userId: number }> {
+  return apiFetch<{ question: string; userId: number }>("/api/auth/security-question", {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
+}
+
+export async function resetPassword(
+  userId: number,
+  securityAnswer: string,
+  newPassword: string,
+): Promise<void> {
+  await apiFetch("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ userId, securityAnswer, newPassword }),
+  });
 }
 
 // ── User Functions (保留原有签名，管理功能用) ─────────────────────────────────

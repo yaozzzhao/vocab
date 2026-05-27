@@ -2,6 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Word, MistakeRecord, TestConfig } from '../types';
 import { BookX, Trash2, BrainCircuit, CheckCircle2, Play, RotateCcw, Volume2, ChevronLeft, HelpCircle, ThumbsDown, XCircle, Filter } from 'lucide-react';
 
+interface FilterState {
+  publisher: string;
+  grade: number | null;
+  semester: string;
+}
+
 interface ErrorBookProps {
   words: Word[];
   mistakes: MistakeRecord[];
@@ -12,25 +18,45 @@ interface ErrorBookProps {
 
 export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTest, onRemoveMistake, onNavigateHome }) => {
   const [showFilter, setShowFilter] = useState(true);
-  const [filterUnit, setFilterUnit] = useState("");
+  const [filter, setFilter] = useState<FilterState>({
+    publisher: "",
+    grade: null,
+    semester: "",
+  });
 
   const mistakenWords = useMemo(() => {
     const mistakeWordIds = new Set(mistakes.map(m => m.wordId));
     return words.filter(w => mistakeWordIds.has(w.id));
   }, [words, mistakes]);
 
-  const availableUnits = useMemo(() => {
+  const availablePublishers = useMemo(() => {
     const set = new Set<string>();
-    mistakenWords.forEach((w) => { if (w.unit) set.add(w.unit); });
+    words.forEach((w) => { if (w.publisher) set.add(w.publisher); });
     return Array.from(set).sort();
-  }, [mistakenWords]);
+  }, [words]);
 
-  const hasFilter = availableUnits.length > 0;
+  const availableGrades = useMemo(() => {
+    const set = new Set<number>();
+    words.forEach((w) => { if (w.grade != null) set.add(w.grade); });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [words]);
+
+  const availableSemesters = useMemo(() => {
+    const set = new Set<string>();
+    words.forEach((w) => { if (w.semester) set.add(w.semester); });
+    return Array.from(set).sort();
+  }, [words]);
+
+  const hasFilter = availablePublishers.length > 0 || availableGrades.length > 0;
 
   const filteredWords = useMemo(() => {
-    if (!filterUnit) return mistakenWords;
-    return mistakenWords.filter((w) => w.unit === filterUnit);
-  }, [mistakenWords, filterUnit]);
+    return mistakenWords.filter((w) => {
+      if (filter.publisher && w.publisher !== filter.publisher) return false;
+      if (filter.grade != null && w.grade !== filter.grade) return false;
+      if (filter.semester && w.semester !== filter.semester) return false;
+      return true;
+    });
+  }, [mistakenWords, filter]);
 
   const mistakeTypeMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -105,34 +131,77 @@ export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTe
         </div>
       ) : (
         <>
-          {/* Filter Bar */}
+          {/* Filter Panel */}
           {hasFilter && (
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2 flex-wrap">
+            <div className="mb-6 p-5 bg-white rounded-2xl border border-stone-200 shadow-card space-y-4 animate-slide-down">
+              {availablePublishers.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2">Publisher</p>
+                  <div className="flex flex-wrap gap-2">
+                    {["", ...availablePublishers].map((pub) => (
+                      <button
+                        key={pub || "all"}
+                        onClick={() => setFilter((f) => ({ ...f, publisher: pub }))}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                          filter.publisher === pub
+                            ? "bg-brand-500 text-white shadow-sm"
+                            : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                        }`}
+                      >
+                        {pub || "All"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {availableGrades.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2">Grade</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[null, ...availableGrades].map((g) => (
+                      <button
+                        key={g ?? "all"}
+                        onClick={() => setFilter((f) => ({ ...f, grade: g }))}
+                        className={`w-10 h-10 rounded-full text-sm font-medium transition-all ${
+                          filter.grade === g
+                            ? "bg-brand-500 text-white shadow-sm"
+                            : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                        }`}
+                      >
+                        {g ?? "A"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {availableSemesters.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2">Semester</p>
+                  <div className="flex flex-wrap gap-2">
+                    {["", ...availableSemesters].map((sem) => (
+                      <button
+                        key={sem || "all"}
+                        onClick={() => setFilter((f) => ({ ...f, semester: sem }))}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                          filter.semester === sem
+                            ? "bg-brand-500 text-white shadow-sm"
+                            : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                        }`}
+                      >
+                        {sem || "All"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(filter.publisher || filter.grade !== null || filter.semester) && (
                 <button
-                  onClick={() => { setFilterUnit(""); setShowFilter(true); }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                    !filterUnit
-                      ? 'bg-brand-500 text-white shadow-sm'
-                      : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
-                  }`}
+                  onClick={() => setFilter({ publisher: "", grade: null, semester: "" })}
+                  className="text-sm text-brand-600 font-medium hover:underline"
                 >
-                  All
+                  Clear all filters
                 </button>
-                {availableUnits.map((unit) => (
-                  <button
-                    key={unit}
-                    onClick={() => setFilterUnit(unit)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                      filterUnit === unit
-                        ? 'bg-brand-500 text-white shadow-sm'
-                        : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
-                    }`}
-                  >
-                    {unit}
-                  </button>
-                ))}
-              </div>
+              )}
             </div>
           )}
 

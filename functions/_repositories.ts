@@ -8,6 +8,9 @@ export interface UserRecord {
   passwordHash: string;
   passwordSalt: string;
   passwordIterations: number;
+  securityQuestion: string;
+  securityAnswerHash: string;
+  securityAnswerSalt: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -54,15 +57,10 @@ async function sbFetch(
   options: RequestInit = {},
 ): Promise<Response> {
   const url = `${env.SUPABASE_URL}/rest/v1${path}`;
-  const headers: Record<string, string> = {
-    ...supabaseHeaders(env),
-    ...(options.headers as Record<string, string> ?? {}),
-  };
-  // Bypass PostgREST default 1024-row limit for GET requests
-  if (!options.method || options.method === "GET") {
-    headers["Range"] = "0-99999999";
-  }
-  return fetch(url, { ...options, headers });
+  return fetch(url, {
+    ...options,
+    headers: { ...supabaseHeaders(env), ...(options.headers as Record<string, string> ?? {}) },
+  });
 }
 
 async function sbGet<T>(env: Env, path: string): Promise<T[]> {
@@ -116,6 +114,9 @@ interface UserRow {
   password_hash: string;
   password_salt: string;
   password_iterations: number;
+  security_question: string;
+  security_answer_hash: string;
+  security_answer_salt: string;
   created_at: number;
   updated_at: number;
 }
@@ -154,6 +155,9 @@ function rowToUser(row: UserRow): UserRecord {
     passwordHash: row.password_hash,
     passwordSalt: row.password_salt,
     passwordIterations: row.password_iterations,
+    securityQuestion: row.security_question,
+    securityAnswerHash: row.security_answer_hash,
+    securityAnswerSalt: row.security_answer_salt,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -215,6 +219,8 @@ export async function createUser(
   username: string,
   password: string,
   role: "admin" | "user" = "user",
+  securityQuestion?: string,
+  securityAnswer?: string,
 ): Promise<UserRecord> {
   const normalized = normalizeUsername(username);
   const existing = await sbGet<UserRow>(
@@ -224,6 +230,13 @@ export async function createUser(
   if (existing.length > 0) throw new Error("Username already exists.");
 
   const passwordResult = await hashPassword(password);
+  let answerHash = "";
+  let answerSalt = "";
+  if (securityQuestion && securityAnswer) {
+    const result = await hashPassword(securityAnswer);
+    answerHash = result.hash;
+    answerSalt = result.salt;
+  }
   const now = Date.now();
   const rows = await sbPost<UserRow>(env, "/users", {
     username: username.trim(),
@@ -232,6 +245,9 @@ export async function createUser(
     password_hash: passwordResult.hash,
     password_salt: passwordResult.salt,
     password_iterations: passwordResult.iterations,
+    security_question: securityQuestion ?? "",
+    security_answer_hash: answerHash,
+    security_answer_salt: answerSalt,
     created_at: now,
     updated_at: now,
   });
@@ -257,6 +273,33 @@ export async function getUserById(
 ): Promise<UserRecord | null> {
   const rows = await sbGet<UserRow>(env, `/users?id=eq.${id}`);
   return rows[0] ? rowToUser(rows[0]) : null;
+}
+
+export async function updateUserPassword(
+  env: Env,
+  userId: number,
+  newPassword: string,
+): Promise<void> {
+  const result = await hashPassword(newPassword);
+  await sbPatch(env, `/users?id=eq.${userId}`, {
+    password_hash: result.hash,
+    password_salt: result.salt,
+    password_iterations: result.iterations,
+    updated_at: Date.now(),
+  });
+}
+
+export async function getUserSecurityQuestion(
+  env: Env,
+  username: string,
+): Promise<{ question: string; userId: number } | null> {
+  const normalized = normalizeUsername(username);
+  const rows = await sbGet<UserRow>(
+    env,
+    `/users?username_normalized=eq.${encodeURIComponent(normalized)}&select=id,security_question`,
+  );
+  if (!rows[0] || !rows[0].security_question) return null;
+  return { question: rows[0].security_question, userId: rows[0].id };
 }
 
 export async function getAllUsers(env: Env): Promise<PublicUser[]> {
@@ -313,8 +356,19 @@ export async function getWords(
 ): Promise<WordRecord[]> {
   const filter =
     ownerId === null ? "owner_id=is.null" : `owner_id=eq.${ownerId}`;
-  const rows = await sbGet<WordRow>(env, `/words?${filter}&order=unit.asc,word.asc`);
-  return rows.map(rowToWord);
+  const basePath = `/words?${filter}&order=unit.asc,word.asc`;
+  // Supabase/PostgREST limits to 1000 rows per request; paginate to get all
+  const PAGE = 1000;
+  let all: WordRow[] = [];
+  let offset = 0;
+  while (true) {
+    const path = `${basePath}&limit=${PAGE}&offset=${offset}`;
+    const rows = await sbGet<WordRow>(env, path);
+    all = all.concat(rows);
+    if (rows.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all.map(rowToWord);
 }
 
 export async function updateWord(
@@ -582,3 +636,4 @@ export async function unlockAchievement(
   });
   return rowToAchievement(rows[0]);
 }
+

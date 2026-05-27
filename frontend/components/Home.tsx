@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { BookOpen, BrainCircuit, Sparkles, ChevronRight, Filter, Trophy, Flame, Play, RotateCcw, ArrowLeft } from "lucide-react";
+import React, { useMemo, useState, useCallback } from "react";
+import { BookOpen, BrainCircuit, Sparkles, ChevronRight, Filter, Trophy, Flame, Play, RotateCcw, ArrowLeft, X, Minus, Plus, ChevronDown, BookText } from "lucide-react";
 import { Word, MistakeRecord, TestConfig, PausedTest } from "../types";
 
 interface HomeProps {
@@ -19,6 +19,28 @@ interface FilterState {
   semester: string;
 }
 
+const NODE_GRADIENTS = [
+  "from-violet-500 to-purple-600",
+  "from-sky-400 to-cyan-500",
+  "from-rose-400 to-pink-500",
+  "from-emerald-400 to-teal-500",
+  "from-orange-400 to-amber-500",
+  "from-indigo-400 to-blue-500",
+  "from-fuchsia-400 to-pink-500",
+  "from-lime-400 to-green-500",
+];
+
+const CARD_GRADIENTS = [
+  "from-violet-50 to-purple-50 border-violet-200",
+  "from-sky-50 to-cyan-50 border-sky-200",
+  "from-rose-50 to-pink-50 border-rose-200",
+  "from-emerald-50 to-teal-50 border-emerald-200",
+  "from-orange-50 to-amber-50 border-orange-200",
+  "from-indigo-50 to-blue-50 border-indigo-200",
+  "from-fuchsia-50 to-pink-50 border-fuchsia-200",
+  "from-lime-50 to-green-50 border-lime-200",
+];
+
 export const Home: React.FC<HomeProps> = ({
   words,
   mistakes,
@@ -29,7 +51,7 @@ export const Home: React.FC<HomeProps> = ({
   onResumeTest,
   isAdmin = false,
 }) => {
-  const [showFilter, setShowFilter] = useState(true);
+  const [showFilter, setShowFilter] = useState(false);
   const [filter, setFilter] = useState<FilterState>({
     publisher: "",
     grade: null,
@@ -66,6 +88,12 @@ export const Home: React.FC<HomeProps> = ({
   const hasMetadata = availablePublishers.length > 0 || availableGrades.length > 0;
   const isFiltered = filter.publisher !== "" || filter.grade !== null || filter.semester !== "";
 
+  const [wordCountModal, setWordCountModal] = useState<{
+    unitName: string;
+    total: number;
+    value: number;
+  } | null>(null);
+
   const units = useMemo(() => {
     const unitMap = new Map<string, number>();
     filteredWords.forEach((w) => {
@@ -96,8 +124,26 @@ export const Home: React.FC<HomeProps> = ({
 
   const handleStartUnit = (unitName: string) => {
     const unitWords = filteredWords.filter((w) => w.unit === unitName);
+    if (unitWords.length > 100) {
+      setWordCountModal({
+        unitName,
+        total: unitWords.length,
+        value: 20,
+      });
+      return;
+    }
     onStartTest({ mode: "unit", unitName, words: unitWords });
   };
+
+  const confirmWordCount = useCallback(() => {
+    if (!wordCountModal) return;
+    const count = Math.min(wordCountModal.value, wordCountModal.total);
+    const unitWords = filteredWords
+      .filter((w) => w.unit === wordCountModal.unitName)
+      .slice(0, count);
+    setWordCountModal(null);
+    onStartTest({ mode: "unit", unitName: wordCountModal.unitName, words: unitWords });
+  }, [wordCountModal, filteredWords, onStartTest]);
 
   if (words.length === 0) {
     return (
@@ -126,54 +172,70 @@ export const Home: React.FC<HomeProps> = ({
     );
   }
 
+  const activeFilterCount = [filter.publisher, filter.semester].filter(Boolean).length + (filter.grade != null ? 1 : 0);
+
   return (
     <div className="pb-24 w-full max-w-2xl mx-auto">
-      {/* Streak & Stats Bar */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200">
-            <Flame className="w-4 h-4 text-amber-500" />
-            <span className="text-sm font-bold text-amber-700">{dueReviews.length}</span>
+      {/* Hero Stats Row */}
+      <div className="flex items-center gap-3 mb-7">
+        <div className="flex items-center gap-2.5 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl px-4 py-3 border border-amber-200/60 shadow-sm flex-1">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
+            <Flame className="w-5 h-5 text-white" />
           </div>
-          <button
-            onClick={onNavigateErrorBook}
-            className="flex items-center gap-1.5 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-200 hover:bg-brand-100 hover:border-brand-300 transition-colors cursor-pointer"
-          >
-            <BrainCircuit className="w-4 h-4 text-brand-500" />
-            <span className="text-sm font-bold text-brand-700">{totalMistakes}</span>
-          </button>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-600">Ready to Review</p>
+            <p className="text-xl font-bold text-amber-800">{dueReviews.length}</p>
+          </div>
         </div>
+
+        <button
+          onClick={onNavigateErrorBook}
+          className="flex items-center gap-2.5 bg-gradient-to-br from-rose-50 to-pink-50 rounded-2xl px-4 py-3 border border-rose-200/60 shadow-sm flex-1 hover:from-rose-100 hover:to-pink-100 transition-colors cursor-pointer"
+        >
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center shadow-sm">
+            <BrainCircuit className="w-5 h-5 text-white" />
+          </div>
+          <div className="text-left">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-600">Mistakes</p>
+            <p className="text-xl font-bold text-rose-800">{totalMistakes}</p>
+          </div>
+        </button>
+
         {hasMetadata && (
           <button
             onClick={() => setShowFilter((v) => !v)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-              showFilter
-                ? "bg-brand-500 text-white shadow-bubble"
-                : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+            className={`rounded-2xl px-4 py-3 border transition-all cursor-pointer ${
+              showFilter || isFiltered
+                ? "bg-brand-500 border-brand-500 text-white shadow-bubble"
+                : "bg-stone-50 border-stone-200 text-stone-500 hover:bg-stone-100"
             }`}
           >
-            <Filter className="w-4 h-4" />
-            Filter
+            <div className="flex flex-col items-center gap-0.5">
+              <Filter className="w-5 h-5" />
+              {isFiltered && (
+                <span className="text-[10px] font-bold leading-none">{activeFilterCount}</span>
+              )}
+            </div>
           </button>
         )}
       </div>
 
       {/* Resume Test Card */}
       {pausedTest && (
-        <div className="mb-6 p-5 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 shadow-card animate-slide-down">
+        <div className="mb-6 p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 shadow-card animate-slide-down">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
               <ArrowLeft className="w-5 h-5 text-amber-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-stone-800">Test Paused</p>
-              <p className="text-sm text-stone-500">
-                {pausedTest.config.mode === "review" ? "Review" : pausedTest.config.unitName} &middot; {pausedTest.currentIndex + 1} of {pausedTest.questions.length} completed
+              <p className="font-bold text-stone-800 text-sm">Test Paused</p>
+              <p className="text-xs text-stone-500">
+                {pausedTest.config.mode === "review" ? "Review" : pausedTest.config.unitName} &middot; {pausedTest.currentIndex + 1} of {pausedTest.questions.length}
               </p>
             </div>
             <button
               onClick={onResumeTest}
-              className="px-5 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600 active:scale-[0.98] transition-all shadow-bubble shrink-0"
+              className="px-5 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600 active:scale-[0.98] transition-all shadow-bubble shrink-0 cursor-pointer"
             >
               Resume
             </button>
@@ -192,7 +254,7 @@ export const Home: React.FC<HomeProps> = ({
                   <button
                     key={pub || "all"}
                     onClick={() => setFilter((f) => ({ ...f, publisher: pub }))}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all cursor-pointer ${
                       filter.publisher === pub
                         ? "bg-brand-500 text-white shadow-sm"
                         : "bg-stone-100 text-stone-600 hover:bg-stone-200"
@@ -212,7 +274,7 @@ export const Home: React.FC<HomeProps> = ({
                   <button
                     key={g ?? "all"}
                     onClick={() => setFilter((f) => ({ ...f, grade: g }))}
-                    className={`w-10 h-10 rounded-full text-sm font-medium transition-all ${
+                    className={`w-10 h-10 rounded-full text-sm font-medium transition-all cursor-pointer ${
                       filter.grade === g
                         ? "bg-brand-500 text-white shadow-sm"
                         : "bg-stone-100 text-stone-600 hover:bg-stone-200"
@@ -232,7 +294,7 @@ export const Home: React.FC<HomeProps> = ({
                   <button
                     key={sem || "all"}
                     onClick={() => setFilter((f) => ({ ...f, semester: sem }))}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all cursor-pointer ${
                       filter.semester === sem
                         ? "bg-brand-500 text-white shadow-sm"
                         : "bg-stone-100 text-stone-600 hover:bg-stone-200"
@@ -247,7 +309,7 @@ export const Home: React.FC<HomeProps> = ({
           {isFiltered && (
             <button
               onClick={() => setFilter({ publisher: "", grade: null, semester: "" })}
-              className="text-sm text-brand-600 font-medium hover:underline"
+              className="text-sm text-brand-600 font-medium hover:underline cursor-pointer"
             >
               Clear all filters
             </button>
@@ -255,96 +317,154 @@ export const Home: React.FC<HomeProps> = ({
         </div>
       )}
 
-      {/* Review Card */}
-      <div className="mb-10 bg-gradient-to-br from-brand-500 to-brand-700 rounded-2xl p-6 text-white shadow-bubble">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-brand-100 text-sm font-medium uppercase tracking-wider">Smart Review</p>
-            <p className="text-5xl font-bold mt-1">{dueReviews.length}</p>
-            <p className="text-brand-100 text-sm mt-1">words ready to review</p>
+      {/* Smart Review Card */}
+      {dueReviews.length > 0 && (
+        <div className="mb-8 bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 rounded-2xl p-5 text-white shadow-bubble">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-brand-100 text-xs font-semibold uppercase tracking-wider">Smart Review</p>
+              <p className="text-4xl font-bold mt-1">{dueReviews.length}</p>
+              <p className="text-brand-100 text-xs mt-0.5">words waiting for you</p>
+            </div>
+            <div className="w-14 h-14 bg-white/15 rounded-full flex items-center justify-center backdrop-blur-sm">
+              <RotateCcw className="w-6 h-6" />
+            </div>
           </div>
-          <div className="w-16 h-16 bg-white/15 rounded-full flex items-center justify-center backdrop-blur-sm">
-            <RotateCcw className="w-7 h-7" />
-          </div>
+          <button
+            onClick={handleStartReview}
+            className="w-full py-3 rounded-xl font-semibold text-sm bg-white text-brand-700 hover:bg-brand-50 active:scale-[0.98] transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Play className="w-4 h-4" />
+            Start Review
+          </button>
         </div>
-        <button
-          onClick={handleStartReview}
-          disabled={dueReviews.length === 0}
-          className={`w-full py-3.5 rounded-xl font-semibold text-base flex items-center justify-center gap-2 transition-all ${
-            dueReviews.length > 0
-              ? "bg-white text-brand-700 hover:bg-brand-50 active:scale-[0.98] shadow-lg"
-              : "bg-white/20 text-white/60 cursor-not-allowed"
-          }`}
-        >
-          {dueReviews.length > 0 ? (
-            <>
-              <Play className="w-5 h-5" />
-              Start Review
-            </>
-          ) : "All Caught Up!"}
-        </button>
-      </div>
+      )}
 
-      {/* Path / Unit Tree */}
-      <div>
-        <div className="flex items-center justify-between mb-5">
+      {/* Units Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
           <h2 className="text-lg font-bold text-stone-800">Study Units</h2>
-          {isFiltered && (
-            <span className="text-sm text-stone-400">{filteredWords.length} words</span>
+          {!isFiltered && (
+            <p className="text-xs text-stone-400 mt-0.5">{filteredWords.length} words &middot; {units.length} units</p>
           )}
         </div>
-
-        {units.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <BookOpen className="w-7 h-7 text-stone-400" />
-            </div>
-            <p className="text-stone-400 font-medium">No units found</p>
-          </div>
-        ) : (
-          <div className="relative">
-            {/* Vertical connecting line */}
-            <div className="absolute left-6 top-4 bottom-4 w-0.5 bg-stone-200" />
-
-            <div className="space-y-3">
-              {units.map(([unitName, count], idx) => {
-                const isFirst = idx === 0;
-                const isLast = idx === units.length - 1;
-                return (
-                  <button
-                    key={unitName}
-                    onClick={() => handleStartUnit(unitName)}
-                    className="relative w-full flex items-center gap-4 p-4 bg-white rounded-2xl border border-stone-200 shadow-card hover:shadow-card-hover hover:border-brand-200 hover:-translate-y-0.5 transition-all group text-left active:scale-[0.99]"
-                  >
-                    {/* Node circle */}
-                    <div className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center text-base font-bold shrink-0 transition-all ${
-                      isFirst
-                        ? "bg-brand-500 text-white shadow-bubble"
-                        : "bg-stone-100 text-stone-500 group-hover:bg-brand-100 group-hover:text-brand-600"
-                    }`}>
-                      {isFirst ? <Play className="w-5 h-5 ml-0.5" /> : idx + 1}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-stone-800 group-hover:text-brand-700 transition-colors truncate">
-                        {unitName}
-                      </h3>
-                      <p className="text-sm text-stone-400">{count} words</p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-stone-400 group-hover:text-brand-500 transition-colors">
-                        Start
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-brand-400 transition-all group-hover:translate-x-0.5" />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        {isFiltered && (
+          <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2.5 py-1 rounded-full">
+            {filteredWords.length} words
+          </span>
         )}
       </div>
+
+      {/* Unit Grid */}
+      {units.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <BookOpen className="w-7 h-7 text-stone-400" />
+          </div>
+          <p className="text-stone-400 font-medium">No units found</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {units.map(([unitName, count], idx) => {
+            const gradientIdx = idx % NODE_GRADIENTS.length;
+            return (
+              <button
+                key={unitName}
+                onClick={() => handleStartUnit(unitName)}
+                className={`group text-left rounded-2xl border bg-gradient-to-br ${CARD_GRADIENTS[gradientIdx]} p-5 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer`}
+              >
+                <h3 className="font-bold text-stone-800 group-hover:text-brand-700 transition-colors text-sm leading-tight mb-1 line-clamp-2">
+                  {unitName}
+                </h3>
+                <p className="text-xs text-stone-400">{count} words</p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Word Count Modal */}
+      {wordCountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 animate-slide-down">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-stone-800">How many words?</h3>
+              <button
+                onClick={() => setWordCountModal(null)}
+                className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center hover:bg-stone-200 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4 text-stone-500" />
+              </button>
+            </div>
+
+            <p className="text-sm text-stone-500 mb-5">
+              This unit has <span className="font-semibold text-stone-700">{wordCountModal.total} words</span>.
+              How many would you like to test?
+            </p>
+
+            <div className="flex items-center justify-center gap-5 mb-6">
+              <button
+                onClick={() =>
+                  setWordCountModal((m) =>
+                    m ? { ...m, value: Math.max(1, m.value - 5) } : m
+                  )
+                }
+                className="w-11 h-11 rounded-full bg-stone-100 flex items-center justify-center hover:bg-stone-200 transition-colors cursor-pointer active:scale-90"
+              >
+                <Minus className="w-5 h-5 text-stone-600" />
+              </button>
+
+              <div className="text-center">
+                <span className="text-4xl font-bold text-brand-600 tabular-nums">
+                  {wordCountModal.value}
+                </span>
+                <span className="text-sm text-stone-400 block mt-0.5">
+                  of {wordCountModal.total}
+                </span>
+              </div>
+
+              <button
+                onClick={() =>
+                  setWordCountModal((m) =>
+                    m ? { ...m, value: Math.min(m.total, m.value + 5) } : m
+                  )
+                }
+                className="w-11 h-11 rounded-full bg-stone-100 flex items-center justify-center hover:bg-stone-200 transition-colors cursor-pointer active:scale-90"
+              >
+                <Plus className="w-5 h-5 text-stone-600" />
+              </button>
+            </div>
+
+            <input
+              type="range"
+              min={1}
+              max={wordCountModal.total}
+              value={wordCountModal.value}
+              onChange={(e) =>
+                setWordCountModal((m) =>
+                  m ? { ...m, value: parseInt(e.target.value, 10) } : m
+                )
+              }
+              className="w-full mb-6 accent-brand-500 h-2 rounded-full appearance-none cursor-pointer bg-stone-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-500 [&::-webkit-slider-thumb]:shadow-md"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setWordCountModal(null)}
+                className="flex-1 py-3 rounded-xl font-semibold text-stone-500 bg-stone-100 hover:bg-stone-200 transition-colors cursor-pointer active:scale-[0.98]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmWordCount}
+                className="flex-1 py-3 rounded-xl font-semibold text-white bg-brand-500 hover:bg-brand-600 transition-colors cursor-pointer active:scale-[0.98] shadow-bubble"
+              >
+                Start
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

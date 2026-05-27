@@ -19,26 +19,21 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // 搜索 & 筛选
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUnit, setFilterUnit] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
-  // 编辑
   const [editingWord, setEditingWord] = useState<Word | null>(null);
   const [editForm, setEditForm] = useState<Omit<Word, 'id' | 'ownerId'>>({ unit: '', word: '', phonetic: '', meaning: '' });
   const [saving, setSaving] = useState(false);
 
-  // 新增
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<Omit<Word, 'id' | 'ownerId'>>({ unit: '', word: '', phonetic: '', meaning: '' });
   const [adding, setAdding] = useState(false);
 
-  // 删除
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
-  // 导入
   const [isMapping, setIsMapping] = useState(false);
   const [detectedKeys, setDetectedKeys] = useState<string[]>([]);
   const [rawData, setRawData] = useState<any[]>([]);
@@ -50,7 +45,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
       const result = await db.getWords();
       setWords(result);
     } catch (e: any) {
-      setError(e.message || '加载单词库失败');
+      setError(e.message || 'Failed to load word library');
     } finally {
       setLoading(false);
     }
@@ -62,8 +57,6 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     setSuccess(msg);
     setTimeout(() => setSuccess(null), 3000);
   };
-
-  // ── 筛选 & 分页 ──────────────────────────────────────────────────────────────
 
   const units = Array.from(new Set(words.map(w => w.unit))).sort();
 
@@ -79,8 +72,6 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
 
   useEffect(() => { setCurrentPage(1); }, [searchQuery, filterUnit]);
 
-  // ── 编辑 ──────────────────────────────────────────────────────────────────────
-
   const startEdit = (word: Word) => {
     setEditingWord(word);
     setEditForm({ unit: word.unit, word: word.word, phonetic: word.phonetic, meaning: word.meaning, page: word.page });
@@ -91,7 +82,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
   const saveEdit = async () => {
     if (!editingWord) return;
     if (!editForm.unit.trim() || !editForm.word.trim() || !editForm.meaning.trim()) {
-      setError('Unit、单词和释义不能为空');
+      setError('Unit, word, and meaning cannot be empty');
       return;
     }
     setSaving(true);
@@ -100,19 +91,17 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
       const updated = await db.updateWord(editingWord.id, editingWord.ownerId, editForm);
       setWords(prev => prev.map(w => w.id === updated.id ? updated : w));
       setEditingWord(null);
-      showSuccess('单词已更新');
+      showSuccess('Word updated');
     } catch (e: any) {
-      setError(e.message || '更新失败');
+      setError(e.message || 'Update failed');
     } finally {
       setSaving(false);
     }
   };
 
-  // ── 新增 ──────────────────────────────────────────────────────────────────────
-
   const handleAdd = async () => {
     if (!addForm.unit.trim() || !addForm.word.trim() || !addForm.meaning.trim()) {
-      setError('Unit、单词和释义不能为空');
+      setError('Unit, word, and meaning cannot be empty');
       return;
     }
     setAdding(true);
@@ -122,26 +111,24 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
       await fetchWords();
       setAddForm({ unit: '', word: '', phonetic: '', meaning: '' });
       setShowAddForm(false);
-      showSuccess('单词已添加');
+      showSuccess('Word added');
     } catch (e: any) {
-      setError(e.message || '添加失败');
+      setError(e.message || 'Add failed');
     } finally {
       setAdding(false);
     }
   };
 
-  // ── 删除 ──────────────────────────────────────────────────────────────────────
-
   const deleteSingle = async (wordId: string) => {
-    if (!window.confirm('确认删除这个单词？')) return;
+    if (!window.confirm('Delete this word?')) return;
     setDeletingIds(prev => new Set(prev).add(wordId));
     try {
       await db.deleteWord(wordId, words.find(w => w.id === wordId)?.ownerId ?? null);
       setWords(prev => prev.filter(w => w.id !== wordId));
       setSelectedIds(prev => { const s = new Set(prev); s.delete(wordId); return s; });
-      showSuccess('单词已删除');
+      showSuccess('Word deleted');
     } catch (e: any) {
-      setError(e.message || '删除失败');
+      setError(e.message || 'Delete failed');
     } finally {
       setDeletingIds(prev => { const s = new Set(prev); s.delete(wordId); return s; });
     }
@@ -149,16 +136,16 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
 
   const deleteSelected = async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`确认删除选中的 ${selectedIds.size} 个单词？`)) return;
+    if (!window.confirm(`Delete ${selectedIds.size} selected words?`)) return;
     const ids = Array.from(selectedIds);
     ids.forEach(id => setDeletingIds(prev => new Set(prev).add(id)));
     try {
       await db.deleteWords(ids, words.find(w => w.id === ids[0])?.ownerId ?? null);
       setWords(prev => prev.filter(w => !selectedIds.has(w.id)));
       setSelectedIds(new Set());
-      showSuccess(`已删除 ${ids.length} 个单词`);
+      showSuccess(`Deleted ${ids.length} words`);
     } catch (e: any) {
-      setError(e.message || '批量删除失败');
+      setError(e.message || 'Batch delete failed');
     } finally {
       setDeletingIds(new Set());
     }
@@ -180,8 +167,6 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     }
   };
 
-  // ── 导出 ──────────────────────────────────────────────────────────────────────
-
   const handleExport = async () => {
     try {
       const allWords = await db.exportWords();
@@ -193,13 +178,11 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
       a.download = `vocab-export-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showSuccess('单词库已导出');
+      showSuccess('Word library exported');
     } catch (e: any) {
-      setError(e.message || '导出失败');
+      setError(e.message || 'Export failed');
     }
   };
-
-  // ── 导入 ──────────────────────────────────────────────────────────────────────
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -209,7 +192,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     reader.onload = (e) => {
       try {
         const parsed = JSON.parse(e.target?.result as string);
-        if (!Array.isArray(parsed)) throw new Error('JSON 文件必须包含一个数组');
+        if (!Array.isArray(parsed)) throw new Error('JSON file must contain an array');
         let flat: any[] = [];
         if (parsed.length > 0 && parsed[0]?.vocabulary_list) {
           const vl = parsed[0].vocabulary_list;
@@ -221,12 +204,12 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
         } else {
           flat = parsed;
         }
-        if (flat.length === 0 || typeof flat[0] !== 'object') throw new Error('未在 JSON 中找到有效的单词对象');
+        if (flat.length === 0 || typeof flat[0] !== 'object') throw new Error('No valid word data found in JSON');
         setRawData(flat);
         setDetectedKeys(Object.keys(flat[0]));
         setIsMapping(true);
       } catch (err: any) {
-        setError(err.message || '解析 JSON 失败');
+        setError(err.message || 'Failed to parse JSON');
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
@@ -240,7 +223,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
         const word = item[mapping.word];
         const meaning = item[mapping.meaning];
         const unit = item[mapping.unit];
-        if (!word || !meaning || !unit) throw new Error(`第 ${i + 1} 行数据缺少必填字段`);
+        if (!word || !meaning || !unit) throw new Error(`Row ${i + 1} missing required fields`);
         return {
           unit: String(unit),
           word: String(word),
@@ -251,17 +234,15 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
       });
       await db.addWords(newWords, currentUserId);
       await fetchWords();
-      showSuccess(`成功导入 ${newWords.length} 个单词`);
+      showSuccess(`Imported ${newWords.length} words`);
     } catch (e: any) {
-      setError(e.message || '导入失败');
+      setError(e.message || 'Import failed');
     } finally {
       setIsMapping(false);
       setRawData([]);
       setDetectedKeys([]);
     }
   };
-
-  // ── 渲染 ──────────────────────────────────────────────────────────────────────
 
   if (isMapping) {
     return (
@@ -278,8 +259,8 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-3xl font-serif font-bold text-stone-900">单词库管理</h2>
-          <p className="text-stone-500 mt-1">共 {words.length} 个单词</p>
+          <h2 className="text-3xl font-serif font-bold text-stone-900">Word Library</h2>
+          <p className="text-stone-500 mt-1">{words.length} words total</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -287,11 +268,11 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
             className="inline-flex items-center gap-2 px-4 py-2 border border-stone-300 text-stone-700 rounded-md hover:bg-stone-50 text-sm font-medium transition-colors"
           >
             <Download className="w-4 h-4" />
-            导出
+            Export
           </button>
           <label className="inline-flex items-center gap-2 px-4 py-2 border border-stone-300 text-stone-700 rounded-md hover:bg-stone-50 text-sm font-medium transition-colors cursor-pointer">
             <Upload className="w-4 h-4" />
-            导入
+            Import
             <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
           </label>
           <button
@@ -299,12 +280,11 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
             className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-md hover:bg-slate-900 text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
-            新增单词
+            Add Word
           </button>
         </div>
       </div>
 
-      {/* 消息提示 */}
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-800 text-sm">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -319,10 +299,9 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
         </div>
       )}
 
-      {/* 新增表单 */}
       {showAddForm && (
         <div className="mb-6 p-5 bg-stone-50 border border-stone-200 rounded-lg">
-          <h3 className="font-semibold text-stone-800 mb-4">新增单词</h3>
+          <h3 className="font-semibold text-stone-800 mb-4">Add New Word</h3>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <input
               placeholder="Unit *"
@@ -331,26 +310,26 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
               className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
             />
             <input
-              placeholder="单词 *"
+              placeholder="Word *"
               value={addForm.word}
               onChange={e => setAddForm(f => ({ ...f, word: e.target.value }))}
               className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
             />
             <input
-              placeholder="音标"
+              placeholder="Phonetic"
               value={addForm.phonetic}
               onChange={e => setAddForm(f => ({ ...f, phonetic: e.target.value }))}
               className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
             />
             <input
-              placeholder="页码"
+              placeholder="Page"
               value={addForm.page || ''}
               onChange={e => setAddForm(f => ({ ...f, page: e.target.value }))}
               className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
             />
           </div>
           <input
-            placeholder="释义 *"
+            placeholder="Meaning *"
             value={addForm.meaning}
             onChange={e => setAddForm(f => ({ ...f, meaning: e.target.value }))}
             className="w-full border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 mb-3"
@@ -362,24 +341,23 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
               className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-md hover:bg-slate-900 text-sm font-medium disabled:opacity-50"
             >
               {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              保存
+              Save
             </button>
             <button
               onClick={() => { setShowAddForm(false); setError(null); }}
               className="px-4 py-2 border border-stone-300 text-stone-700 rounded-md hover:bg-stone-50 text-sm font-medium"
             >
-              取消
+              Cancel
             </button>
           </div>
         </div>
       )}
 
-      {/* 搜索 & 筛选 */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
           <input
-            placeholder="搜索单词或释义…"
+            placeholder="Search words or meanings…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 border border-stone-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
@@ -390,40 +368,38 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
           onChange={e => setFilterUnit(e.target.value)}
           className="border border-stone-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
         >
-          <option value="">全部 Unit</option>
+          <option value="">All Units</option>
           {units.map(u => <option key={u} value={u}>{u}</option>)}
         </select>
       </div>
 
-      {/* 批量操作栏 */}
       {selectedIds.size > 0 && (
         <div className="mb-3 flex items-center gap-3 p-3 bg-slate-100 rounded-md">
-          <span className="text-sm text-slate-700 font-medium">已选 {selectedIds.size} 项</span>
+          <span className="text-sm text-slate-700 font-medium">{selectedIds.size} selected</span>
           <button
             onClick={deleteSelected}
             className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            批量删除
+            Delete Selected
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
             className="px-3 py-1.5 text-slate-600 hover:text-slate-800 text-sm"
           >
-            取消选择
+            Cancel
           </button>
         </div>
       )}
 
-      {/* 单词表格 */}
       {loading ? (
         <div className="flex items-center justify-center py-16 text-stone-500">
           <Loader2 className="w-6 h-6 animate-spin mr-2" />
-          加载中…
+          Loading…
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-stone-400">
-          {searchQuery || filterUnit ? '没有符合条件的单词' : '暂无单词，请导入或新增'}
+          {searchQuery || filterUnit ? 'No matching words' : 'No words yet. Import or add new words.'}
         </div>
       ) : (
         <>
@@ -440,10 +416,10 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
                     />
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-stone-600 w-24">Unit</th>
-                  <th className="px-4 py-3 text-left font-medium text-stone-600 w-36">单词</th>
-                  <th className="px-4 py-3 text-left font-medium text-stone-600 w-28">音标</th>
-                  <th className="px-4 py-3 text-left font-medium text-stone-600">释义</th>
-                  <th className="px-4 py-3 text-right font-medium text-stone-600 w-24">操作</th>
+                  <th className="px-4 py-3 text-left font-medium text-stone-600 w-36">Word</th>
+                  <th className="px-4 py-3 text-left font-medium text-stone-600 w-28">Phonetic</th>
+                  <th className="px-4 py-3 text-left font-medium text-stone-600">Meaning</th>
+                  <th className="px-4 py-3 text-right font-medium text-stone-600 w-24">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -485,11 +461,11 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
                             onClick={saveEdit}
                             disabled={saving}
                             className="p-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                            title="保存"
+                            title="Save"
                           >
                             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                           </button>
-                          <button onClick={cancelEdit} className="p-1.5 border border-stone-300 rounded hover:bg-stone-100" title="取消">
+                          <button onClick={cancelEdit} className="p-1.5 border border-stone-300 rounded hover:bg-stone-100" title="Cancel">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -514,7 +490,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
                           <button
                             onClick={() => startEdit(word)}
                             className="p-1.5 text-stone-400 hover:text-slate-700 hover:bg-stone-100 rounded"
-                            title="编辑"
+                            title="Edit"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
@@ -522,7 +498,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
                             onClick={() => deleteSingle(word.id)}
                             disabled={deletingIds.has(word.id)}
                             className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
-                            title="删除"
+                            title="Delete"
                           >
                             {deletingIds.has(word.id) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                           </button>
@@ -535,10 +511,9 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
             </table>
           </div>
 
-          {/* 分页 */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4 text-sm text-stone-600">
-              <span>第 {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} 条，共 {filtered.length} 条</span>
+              <span>Showing {(currentPage - 1) * PAGE_SIZE + 1}&ndash;{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -547,7 +522,7 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <span className="px-3">第 {currentPage} / {totalPages} 页</span>
+                <span className="px-3">Page {currentPage} / {totalPages}</span>
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}

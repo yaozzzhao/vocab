@@ -9,6 +9,7 @@ export interface Env {
   ADMIN_INITIAL_PASSWORD: string;
   GEMINI_API_KEY: string;
   GEMINI_MODEL?: string;
+  ENRICH_API_KEY: string;
 }
 
 export interface ApiResponse<T = unknown> {

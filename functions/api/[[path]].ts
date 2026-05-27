@@ -15,6 +15,8 @@ import {
   getUserById,
   getAllUsers,
   updateUserRole,
+  updateUserPassword,
+  getUserSecurityQuestion,
   addWords as repoAddWords,
   getWords as repoGetWords,
   clearAllUserData,
@@ -75,6 +77,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (path === "/api/auth/me" && method === "GET") {
       return await handleMe(request, env);
     }
+    if (path === "/api/auth/security-questions" && method === "GET") {
+      return jsonOk({ questions: SECURITY_QUESTIONS });
+    }
+    if (path === "/api/auth/change-password" && method === "POST") {
+      return await handleChangePassword(request, env);
+    }
+    if (path === "/api/auth/security-question" && method === "POST") {
+      return await handleGetSecurityQuestion(request, env);
+    }
+    if (path === "/api/auth/reset-password" && method === "POST") {
+      return await handleResetPassword(request, env);
+    }
 
     // ===================== USER ROUTES =====================
     if (path === "/api/users" && method === "GET") {
@@ -129,6 +143,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // ===================== AI ROUTES =====================
     if (path === "/api/ai/generate-article" && method === "POST") {
       return await handleGenerateArticle(request, env);
+    }
+
+    // ===================== ENRICHMENT (admin, API-key) =====================
+    if (path === "/api/admin/enrich" && method === "POST") {
+      return await handleEnrichBatch(request, env);
     }
 
     // ===================== VERTEX PROXY =====================
@@ -214,9 +233,13 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleRegister(request: Request, env: Env): Promise<Response> {
-  const body = await parseBody<{ username?: string; password?: string }>(
-    request,
-  );
+  const body = await parseBody<{
+    username?: string;
+    password?: string;
+    securityQuestion?: string;
+    securityAnswer?: string;
+    captchaAnswer?: number;
+  }>(request);
   if (!body || !body.username || !body.password) {
     return jsonError("用户名和密码不能为空", 400);
   }
@@ -229,10 +252,19 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   if (normalizeUsername(body.username) === "admin") {
     return jsonError("该用户名不可用", 400);
   }
+  if (!body.securityQuestion || !body.securityAnswer) {
+    return jsonError("请选择安全问题并填写答案", 400);
+  }
+  if (body.securityAnswer.length < 2) {
+    return jsonError("安全答案至少需要 2 个字符", 400);
+  }
 
   let userRecord;
   try {
-    userRecord = await createUser(env, body.username, body.password, "user");
+    userRecord = await createUser(
+      env, body.username, body.password, "user",
+      body.securityQuestion, body.securityAnswer,
+    );
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "注册失败";
     return jsonError(message, 409);
@@ -245,6 +277,79 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     role: userRecord.role,
   };
   return jsonOk({ user, token }, 201);
+}
+
+const SECURITY_QUESTIONS = [
+  "What is your mother's maiden name?",
+  "What was the name of your first pet?",
+  "What city were you born in?",
+  "What was the name of your elementary school?",
+  "What is your favorite book?",
+  "What is your favorite food?",
+  "What was the model of your first car?",
+  "What is your favorite color?",
+];
+
+async function handleChangePassword(request: Request, env: Env): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+
+  const body = await parseBody<{ currentPassword?: string; newPassword?: string }>(request);
+  if (!body || !body.currentPassword || !body.newPassword) {
+    return jsonError("请填写当前密码和新密码", 400);
+  }
+  if (body.newPassword.length < 6) {
+    return jsonError("新密码至少需要 6 个字符", 400);
+  }
+
+  const userRecord = await getUserById(env, session.userId);
+  if (!userRecord) return jsonError("User not found", 404);
+
+  const ok = await verifyPassword(body.currentPassword, userRecord.passwordHash, userRecord.passwordSalt);
+  if (!ok) return jsonError("当前密码错误", 401);
+
+  await updateUserPassword(env, session.userId, body.newPassword);
+  return jsonOk({ message: "密码修改成功" });
+}
+
+async function handleGetSecurityQuestion(request: Request, env: Env): Promise<Response> {
+  const body = await parseBody<{ username?: string }>(request);
+  if (!body || !body.username) {
+    return jsonError("请填写用户名", 400);
+  }
+
+  const result = await getUserSecurityQuestion(env, body.username);
+  if (!result) {
+    return jsonError("用户不存在或未设置安全问题", 404);
+  }
+
+  return jsonOk({ question: result.question, userId: result.userId });
+}
+
+async function handleResetPassword(request: Request, env: Env): Promise<Response> {
+  const body = await parseBody<{ userId?: number; securityAnswer?: string; newPassword?: string }>(request);
+  if (!body || !body.userId || !body.securityAnswer || !body.newPassword) {
+    return jsonError("请填写安全答案和新密码", 400);
+  }
+  if (body.newPassword.length < 6) {
+    return jsonError("新密码至少需要 6 个字符", 400);
+  }
+
+  const userRecord = await getUserById(env, body.userId);
+  if (!userRecord) return jsonError("用户不存在", 404);
+  if (!userRecord.securityAnswerHash || !userRecord.securityAnswerSalt) {
+    return jsonError("该用户未设置安全问题", 400);
+  }
+
+  const ok = await verifyPassword(
+    body.securityAnswer,
+    userRecord.securityAnswerHash,
+    userRecord.securityAnswerSalt,
+  );
+  if (!ok) return jsonError("安全答案错误", 401);
+
+  await updateUserPassword(env, body.userId, body.newPassword);
+  return jsonOk({ message: "密码重置成功" });
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
@@ -729,5 +834,94 @@ Requirements:
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("Gemini AI error:", err);
     return jsonError("生成文章失败: " + message, 502);
+  }
+}
+
+// ===================== ENRICHMENT HANDLER =====================
+
+async function handleEnrichBatch(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const apiKey = request.headers.get("X-API-Key");
+  if (!apiKey || apiKey !== env.ENRICH_API_KEY) {
+    return jsonError("Unauthorized", 401);
+  }
+
+  const body = await parseBody<{
+    words?: Array<{ id: string; word: string; pos?: string }>;
+  }>(request);
+
+  if (!body || !Array.isArray(body.words) || body.words.length === 0) {
+    return jsonError("words 数组不能为空", 400);
+  }
+  if (body.words.length > 40) {
+    return jsonError("单次最多 40 个单词", 400);
+  }
+
+  const wordLines = body.words
+    .map((w, i) => `${i + 1}. ${w.word}${w.pos ? ` (${w.pos})` : ""}`)
+    .join("\n");
+
+  const prompt = `You are a vocabulary assistant. For each English word below, provide:
+1. IPA phonetics (British English)
+2. The most common Chinese translation
+
+Respond with a JSON array only, no markdown, no extra text. Each entry: {"index": N, "phonetic": "/.../", "meaning": "..."}
+
+Words:
+${wordLines}`;
+
+  try {
+    const text = await callGeminiGenerateContent(env, prompt);
+    const results = extractEnrichJson(text);
+
+    if (!results.length) {
+      return jsonError("Failed to parse Gemini response: " + text.slice(0, 200), 502);
+    }
+
+    const enriched: Array<{ id: string; word: string; phonetic: string; meaning: string }> = [];
+
+    for (const res of results) {
+      const idx = Number(res.index ?? 0) - 1;
+      if (idx < 0 || idx >= body.words.length) continue;
+      const wordId = body.words[idx].id;
+      const phonetic = String(res.phonetic ?? "").trim();
+      const meaning = String(res.meaning ?? "").trim();
+      if (!phonetic && !meaning) continue;
+
+      await repoUpdateWord(env, null, wordId, { phonetic, meaning });
+      enriched.push({ id: wordId, word: body.words[idx].word, phonetic, meaning });
+    }
+
+    return jsonOk({ enriched, total: body.words.length });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("Enrichment error:", err);
+    return jsonError("Enrichment failed: " + message, 502);
+  }
+}
+
+function extractEnrichJson(text: string): Array<Record<string, unknown>> {
+  text = text.trim();
+  if (text.startsWith("```")) {
+    text = text.split("\n").slice(text.startsWith("```") && text.includes("\n") ? 1 : 0).join("\n");
+    const end = text.lastIndexOf("```");
+    if (end !== -1) text = text.slice(0, end);
+  }
+  text = text.trim();
+  try {
+    return JSON.parse(text) as Array<Record<string, unknown>>;
+  } catch {
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]");
+    if (start !== -1 && end !== -1) {
+      try {
+        return JSON.parse(text.slice(start, end + 1)) as Array<Record<string, unknown>>;
+      } catch {
+        return [];
+      }
+    }
+    return [];
   }
 }

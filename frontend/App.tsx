@@ -10,7 +10,7 @@ import { ErrorBook } from "./components/ErrorBook";
 import { WordLibrary } from "./components/WordLibrary";
 import { GamificationHub, XpPopup } from "./components/GamificationHub";
 import { LeftSidebar, RightSidebar } from "./components/Sidebar";
-import { LogOut, Users, BookX, Library, Trophy, HomeIcon, Settings, Sparkles, ChevronDown } from "lucide-react";
+import { LogOut, Users, BookX, Library, Trophy, HomeIcon, Settings, Sparkles, ChevronDown, Lock, KeyRound, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { clearSession, getUserStats, updateUserStats } from "./db";
 
 const App: React.FC = () => {
@@ -27,6 +27,12 @@ const App: React.FC = () => {
   >([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [pausedTest, setPausedTest] = useState<PausedTest | null>(null);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [cpCurrent, setCpCurrent] = useState('');
+  const [cpNew, setCpNew] = useState('');
+  const [cpError, setCpError] = useState<string | null>(null);
+  const [cpSuccess, setCpSuccess] = useState(false);
+  const [cpLoading, setCpLoading] = useState(false);
 
   const {
     words,
@@ -85,9 +91,9 @@ const App: React.FC = () => {
     return mistakes.filter((m) => m.nextReviewDate <= today).length;
   }, [mistakes]);
 
-  const unitsCount = useMemo(() => {
-    const unitSet = new Set(words.map((w) => w.unit));
-    return unitSet.size;
+  const publishersCount = useMemo(() => {
+    const set = new Set(words.map((w) => w.publisher).filter(Boolean));
+    return set.size;
   }, [words]);
 
   const handleSidebarReview = () => {
@@ -277,6 +283,13 @@ const App: React.FC = () => {
                       )}
                       <div className="border-t border-stone-100 mt-1 pt-1">
                         <button
+                          onClick={() => { setShowUserMenu(false); setShowChangePassword(true); setCpError(null); setCpSuccess(false); setCpCurrent(''); setCpNew(''); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
+                        >
+                          <Lock className="w-4 h-4" />
+                          Change Password
+                        </button>
+                        <button
                           onClick={handleLogout}
                           className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
                         >
@@ -363,7 +376,7 @@ const App: React.FC = () => {
               totalWords={words.length}
               totalMistakes={mistakes.length}
               dueReviews={dueReviews}
-              unitsCount={unitsCount}
+              publishersCount={publishersCount}
               onStartReview={handleSidebarReview}
             />
           </aside>
@@ -415,6 +428,105 @@ const App: React.FC = () => {
       )}
 
       <XpPopup xpEarned={xpEarned} visible={xpPopupVisible} />
+
+      {/* Change Password Modal */}
+      {showChangePassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 animate-slide-down">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-stone-800">Change Password</h3>
+              <button
+                onClick={() => setShowChangePassword(false)}
+                className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center hover:bg-stone-200 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4 text-stone-500" />
+              </button>
+            </div>
+
+            {cpError && (
+              <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-700 text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{cpError}</span>
+              </div>
+            )}
+
+            {cpSuccess ? (
+              <div className="text-center py-4">
+                <div className="w-14 h-14 bg-success-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle2 className="w-7 h-7 text-success-600" />
+                </div>
+                <p className="font-semibold text-stone-800">Password changed successfully!</p>
+                <button
+                  onClick={() => setShowChangePassword(false)}
+                  className="mt-4 w-full py-3 bg-brand-500 text-white rounded-xl font-semibold hover:bg-brand-600 transition-colors cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setCpError(null);
+                  if (!cpCurrent || !cpNew) {
+                    setCpError("Please fill in all fields.");
+                    return;
+                  }
+                  if (cpNew.length < 6) {
+                    setCpError("New password must be at least 6 characters.");
+                    return;
+                  }
+                  setCpLoading(true);
+                  try {
+                    await db.changePassword(cpCurrent, cpNew);
+                    setCpSuccess(true);
+                  } catch (err: unknown) {
+                    setCpError(err instanceof Error ? err.message : 'Failed to change password.');
+                  } finally {
+                    setCpLoading(false);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-stone-400 absolute top-1/2 left-3.5 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    placeholder="Current password"
+                    value={cpCurrent}
+                    onChange={(e) => setCpCurrent(e.target.value)}
+                    className="w-full pl-10 pr-3 py-3 border border-stone-300 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
+                  />
+                </div>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-stone-400 absolute top-1/2 left-3.5 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    placeholder="New password (min 6 characters)"
+                    value={cpNew}
+                    onChange={(e) => setCpNew(e.target.value)}
+                    className="w-full pl-10 pr-3 py-3 border border-stone-300 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={cpLoading}
+                  className="w-full py-3 bg-brand-500 text-white rounded-xl font-semibold hover:bg-brand-600 active:scale-[0.98] transition-all disabled:opacity-50 shadow-bubble flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {cpLoading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      Update Password
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

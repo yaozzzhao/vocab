@@ -13,6 +13,46 @@ import {
   Target,
 } from "lucide-react";
 
+function dayOfYear(): number {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const diff = now.getTime() - start.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+const DAILY_QUOTES = [
+  "The only way to learn a language is to use it.",
+  "Knowledge of languages is the doorway to wisdom.",
+  "One language sets you in a corridor for life. Two languages open every door along the way.",
+  "Learning another language is not just learning different words for the same things, but learning another way to think about things.",
+  "Language is the road map of a culture. It tells you where its people come from and where they are going.",
+  "The limits of my language mean the limits of my world.",
+  "With languages, you are at home anywhere.",
+  "A different language is a different vision of life.",
+  "To have another language is to possess a second soul.",
+  "Learn everything you can, anytime you can, from anyone you can.",
+  "Language is not a genetic gift, it is a social gift.",
+  "The beautiful thing about learning is that nobody can take it away from you.",
+  "Every word you learn is a step toward a new world.",
+  "Small daily improvements over time lead to stunning results.",
+  "Don't fear making mistakes. Fear not learning from them.",
+  "It does not matter how slowly you go as long as you do not stop.",
+  "The secret of getting ahead is getting started.",
+  "Success is the sum of small efforts repeated day in and day out.",
+  "Your vocabulary is your voice. Make it strong.",
+  "The more that you read, the more things you will know.",
+  "Learning is a treasure that will follow its owner everywhere.",
+  "Mistakes are proof that you are trying.",
+  "A word after a word after a word is power.",
+  "Today a reader, tomorrow a leader.",
+  "The journey of a thousand miles begins with a single word.",
+  "Consistency is more important than perfection.",
+  "Make your vocabulary your superpower.",
+  "Every master was once a beginner.",
+  "Discipline is the bridge between goals and accomplishment.",
+  "Language is the dress of thought.",
+];
+
 interface LeftSidebarProps {
   user: User;
   stats: UserStats | null;
@@ -117,7 +157,7 @@ interface RightSidebarProps {
   totalWords: number;
   totalMistakes: number;
   dueReviews: number;
-  unitsCount: number;
+  publishersCount: number;
   onStartReview: () => void;
 }
 
@@ -126,7 +166,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   totalWords,
   totalMistakes,
   dueReviews,
-  unitsCount,
+  publishersCount,
   onStartReview,
 }) => {
   if (view === "test") return null;
@@ -143,9 +183,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <div className="flex items-center justify-between text-sm">
             <span className="text-stone-500 flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5 text-brand-500" />
-              Units
+              Publishers
             </span>
-            <span className="font-semibold text-stone-700">{unitsCount}</span>
+            <span className="font-semibold text-stone-700">{publishersCount}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-stone-500 flex items-center gap-1.5">
@@ -186,11 +226,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
       </div>
 
-      {/* Tip Card */}
+      {/* Daily Motivation */}
       <div className="bg-gradient-to-br from-brand-50 to-indigo-50 rounded-xl border border-brand-100 p-3">
-        <p className="text-xs font-semibold text-brand-700 mb-1">💡 Tip</p>
-        <p className="text-xs text-stone-600 leading-relaxed">
-          Try to review mistake words daily. Spaced repetition helps you remember longer!
+        <p className="text-xs font-semibold text-brand-700 mb-1">Daily Motivation</p>
+        <p className="text-xs text-stone-600 leading-relaxed italic">
+          &ldquo;{DAILY_QUOTES[dayOfYear() % DAILY_QUOTES.length]}&rdquo;
         </p>
       </div>
     </div>
