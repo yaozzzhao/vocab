@@ -3,7 +3,7 @@
  * 保留原有函数签名，改为调用后端 /api/* 接口
  */
 
-import type { User, Word, MistakeRecord } from "./types";
+import type { User, Word, MistakeRecord, UserStats, UserAchievement, StatUpdateResult } from "./types";
 
 // ── Session 管理 ─────────────────────────────────────────────────────────────
 
@@ -194,4 +194,31 @@ export const removeMistake = async (
       method: "DELETE",
     },
   );
+};
+
+// ── Gamification API ──────────────────────────────────────────────────────────
+
+export const getUserStats = async (): Promise<UserStats> => {
+  const result = await apiFetch<{ stats: UserStats }>("/api/user/stats");
+  return result.stats;
+};
+
+export const updateUserStats = async (payload: {
+  correctCount: number;
+  wrongCount: number;
+  mode: "unit" | "review";
+  wordIds?: string[];
+}): Promise<StatUpdateResult> => {
+  const result = await apiFetch<StatUpdateResult>("/api/user/stats", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return result;
+};
+
+export const getUserAchievements = async (): Promise<UserAchievement[]> => {
+  const result = await apiFetch<{ achievements: UserAchievement[] }>(
+    "/api/user/achievements",
+  );
+  return result.achievements;
 };

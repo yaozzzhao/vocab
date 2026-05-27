@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "./store";
-import { ViewState, TestConfig, User } from "./types";
+import { ViewState, TestConfig, User, UserStats } from "./types";
 import { Home } from "./components/Home";
 import { Manager } from "./components/Manager";
 import { TestSession } from "./components/TestSession";
@@ -8,13 +8,23 @@ import { Login } from "./components/Login";
 import { UserManagement } from "./components/UserManagement";
 import { ErrorBook } from "./components/ErrorBook";
 import { WordLibrary } from "./components/WordLibrary";
-import { LogOut, Users, BookX, Library } from "lucide-react";
-import { clearSession } from "./db";
+import { GamificationHub, XpPopup } from "./components/GamificationHub";
+import { LogOut, Users, BookX, Library, Trophy } from "lucide-react";
+import { clearSession, getUserStats, updateUserStats } from "./db";
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<ViewState>("home");
   const [testConfig, setTestConfig] = useState<TestConfig | null>(null);
+
+  // Gamification state
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [showGamification, setShowGamification] = useState(false);
+  const [xpPopupVisible, setXpPopupVisible] = useState(false);
+  const [xpEarned, setXpEarned] = useState(0);
+  const [achievementToasts, setAchievementToasts] = useState<
+    { id: string; message: string; icon: string }[]
+  >([]);
 
   const {
     words,
@@ -26,6 +36,15 @@ const App: React.FC = () => {
     handleReviewResult,
     removeMistake,
   } = useAppStore(currentUser);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const stats = await getUserStats();
+      setUserStats(stats);
+    } catch {
+      // stats not available yet
+    }
+  }, []);
 
   useEffect(() => {
     // 从 sessionStorage 恢复已登录用户（不含 passwordHash）
@@ -39,15 +58,24 @@ const App: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (currentUser) {
+      loadStats();
+    }
+  }, [currentUser, loadStats]);
+
   const handleLogin = (user: User, _token: string) => {
     setCurrentUser(user);
-    // token 由 db.setSession() 在 login()/register() 内保存
     setCurrentView("home");
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     clearSession();
+  };
+
+  const dismissToast = (id: string) => {
+    setAchievementToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
   if (!currentUser) {
@@ -70,14 +98,44 @@ const App: React.FC = () => {
   const handleTestFinish = async (
     results: { wordId: string; isCorrect: boolean }[],
   ) => {
+    const correctCount = results.filter((r) => r.isCorrect).length;
+    const wrongCount = results.length - correctCount;
+
     if (testConfig?.mode === "review") {
-      // 等待所有 review 结果写入，避免 fire-and-forget 导致数据丢失
       await Promise.all(
         results.map((result) =>
           handleReviewResult(result.wordId, result.isCorrect),
         ),
       );
     }
+
+    // Update gamification stats
+    if (testConfig) {
+      try {
+        const result = await updateUserStats({
+          correctCount,
+          wrongCount,
+          mode: testConfig.mode,
+          wordIds: testConfig.words.map((w) => w.id),
+        });
+        setUserStats(result.stats);
+        setXpEarned(result.xpEarned);
+        setXpPopupVisible(true);
+        setTimeout(() => setXpPopupVisible(false), 3000);
+
+        if (result.newAchievements.length > 0) {
+          const toasts = result.newAchievements.map((a) => ({
+            id: a.id,
+            message: `Achievement: ${a.name}`,
+            icon: a.icon,
+          }));
+          setAchievementToasts((prev) => [...prev, ...toasts]);
+        }
+      } catch {
+        // stats update failed silently
+      }
+    }
+
     setCurrentView("home");
     setTestConfig(null);
   };
@@ -167,6 +225,17 @@ const App: React.FC = () => {
               </>
             )}
             <button
+              onClick={() => setShowGamification(true)}
+              className={`relative p-2 rounded-md transition-colors ${
+                showGamification
+                  ? "bg-stone-200 text-stone-800"
+                  : "text-stone-500 hover:bg-stone-100"
+              }`}
+              title="Progress"
+            >
+              <Trophy className="w-5 h-5" />
+            </button>
+            <button
               onClick={handleLogout}
               className="p-2 rounded-md text-stone-500 hover:bg-stone-100"
               title="Logout"
@@ -222,6 +291,17 @@ const App: React.FC = () => {
           <WordLibrary currentUserId={currentUser.id} />
         )}
       </main>
+
+      {showGamification && (
+        <GamificationHub
+          stats={userStats}
+          onClose={() => setShowGamification(false)}
+          newAchievementToasts={achievementToasts}
+          onDismissToast={dismissToast}
+        />
+      )}
+
+      <XpPopup xpEarned={xpEarned} visible={xpPopupVisible} />
     </div>
   );
 };

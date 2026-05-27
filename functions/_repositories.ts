@@ -415,3 +415,159 @@ export async function removeMistake(
 ): Promise<void> {
   await sbDelete(env, `/mistakes?user_id=eq.${userId}&word_id=eq.${wordId}`);
 }
+
+// ── Gamification Stats Repository ────────────────────────────────────────────
+
+export interface UserStatsRecord {
+  userId: number;
+  xp: number;
+  level: number;
+  streakCount: number;
+  lastActiveDate: string | null;
+  totalTestsCompleted: number;
+  totalCorrect: number;
+  totalWrong: number;
+  totalReviewsCompleted: number;
+  wordsLearnedCount: number;
+}
+
+interface UserStatsRow {
+  user_id: number;
+  xp: number;
+  level: number;
+  streak_count: number;
+  last_active_date: string | null;
+  total_tests_completed: number;
+  total_correct: number;
+  total_wrong: number;
+  total_reviews_completed: number;
+  words_learned_count: number;
+}
+
+function rowToUserStats(row: UserStatsRow): UserStatsRecord {
+  return {
+    userId: row.user_id,
+    xp: row.xp,
+    level: row.level,
+    streakCount: row.streak_count,
+    lastActiveDate: row.last_active_date,
+    totalTestsCompleted: row.total_tests_completed,
+    totalCorrect: row.total_correct,
+    totalWrong: row.total_wrong,
+    totalReviewsCompleted: row.total_reviews_completed,
+    wordsLearnedCount: row.words_learned_count,
+  };
+}
+
+export async function getUserStats(
+  env: Env,
+  userId: number,
+): Promise<UserStatsRecord | null> {
+  const rows = await sbGet<UserStatsRow>(
+    env,
+    `/user_stats?user_id=eq.${userId}`,
+  );
+  return rows[0] ? rowToUserStats(rows[0]) : null;
+}
+
+export async function upsertUserStats(
+  env: Env,
+  userId: number,
+  updates: Partial<Omit<UserStatsRecord, "userId">>,
+): Promise<UserStatsRecord> {
+  const patch: Record<string, unknown> = {};
+  if (updates.xp !== undefined) patch.xp = updates.xp;
+  if (updates.level !== undefined) patch.level = updates.level;
+  if (updates.streakCount !== undefined) patch.streak_count = updates.streakCount;
+  if (updates.lastActiveDate !== undefined) patch.last_active_date = updates.lastActiveDate;
+  if (updates.totalTestsCompleted !== undefined) patch.total_tests_completed = updates.totalTestsCompleted;
+  if (updates.totalCorrect !== undefined) patch.total_correct = updates.totalCorrect;
+  if (updates.totalWrong !== undefined) patch.total_wrong = updates.totalWrong;
+  if (updates.totalReviewsCompleted !== undefined) patch.total_reviews_completed = updates.totalReviewsCompleted;
+  if (updates.wordsLearnedCount !== undefined) patch.words_learned_count = updates.wordsLearnedCount;
+
+  const res = await sbFetch(env, `/user_stats?user_id=eq.${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+    headers: {
+      "Prefer": "resolution=merge-duplicates,return=representation",
+    },
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase upsert user_stats failed: ${err}`);
+  }
+  const text = await res.text();
+  const rows: UserStatsRow[] = text ? JSON.parse(text) : [];
+  if (!rows[0]) throw new Error("Failed to upsert user stats");
+  return rowToUserStats(rows[0]);
+}
+
+export async function createUserStats(
+  env: Env,
+  userId: number,
+): Promise<UserStatsRecord> {
+  const rows = await sbPost<UserStatsRow>(env, "/user_stats", {
+    user_id: userId,
+    xp: 0,
+    level: 1,
+    streak_count: 0,
+    last_active_date: null,
+    total_tests_completed: 0,
+    total_correct: 0,
+    total_wrong: 0,
+    total_reviews_completed: 0,
+    words_learned_count: 0,
+  });
+  return rowToUserStats(rows[0]);
+}
+
+// ── Achievement Repository ───────────────────────────────────────────────────
+
+export interface UserAchievementRecord {
+  id: number;
+  userId: number;
+  achievementId: string;
+  unlockedAt: number;
+}
+
+interface UserAchievementRow {
+  id: number;
+  user_id: number;
+  achievement_id: string;
+  unlocked_at: number;
+}
+
+function rowToAchievement(row: UserAchievementRow): UserAchievementRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    achievementId: row.achievement_id,
+    unlockedAt: row.unlocked_at,
+  };
+}
+
+export async function getUserAchievements(
+  env: Env,
+  userId: number,
+): Promise<UserAchievementRecord[]> {
+  const rows = await sbGet<UserAchievementRow>(
+    env,
+    `/user_achievements?user_id=eq.${userId}&order=unlocked_at.asc`,
+  );
+  return rows.map(rowToAchievement);
+}
+
+export async function unlockAchievement(
+  env: Env,
+  userId: number,
+  achievementId: string,
+): Promise<UserAchievementRecord> {
+  const now = Date.now();
+  const rows = await sbPost<UserAchievementRow>(env, "/user_achievements", {
+    user_id: userId,
+    achievement_id: achievementId,
+    unlocked_at: now,
+  });
+  return rowToAchievement(rows[0]);
+}

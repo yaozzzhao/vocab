@@ -30,6 +30,13 @@ import {
   deleteWord as repoDeleteWord,
   deleteWords as repoDeleteWords,
 } from "../_repositories";
+import {
+  getUserStats as repoGetUserStats,
+  upsertUserStats as repoUpsertUserStats,
+  createUserStats as repoCreateUserStats,
+  getUserAchievements as repoGetUserAchievements,
+  unlockAchievement as repoUnlockAchievement,
+} from "../_repositories";
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
@@ -127,6 +134,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // ===================== VERTEX PROXY =====================
     if (path === "/api-proxy" && method === "POST") {
       return await handleVertexProxy(request, env);
+    }
+
+    // ===================== GAMIFICATION ROUTES =====================
+    if (path === "/api/user/stats" && method === "GET") {
+      return await handleGetUserStats(request, env);
+    }
+    if (path === "/api/user/stats" && method === "POST") {
+      return await handleUpdateUserStats(request, env);
+    }
+    if (path === "/api/user/achievements" && method === "GET") {
+      return await handleGetUserAchievements(request, env);
     }
 
     return jsonError("Not Found", 404);
@@ -504,6 +522,165 @@ async function handleDeleteMistake(
   await repoRemoveMistake(env, userId, wordId);
   return jsonOk({ message: "错题已删除" });
 }
+
+// ===================== GAMIFICATION HANDLERS =====================
+
+async function handleGetUserStats(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+
+  let stats = await repoGetUserStats(env, session.userId);
+  if (!stats) {
+    stats = await repoCreateUserStats(env, session.userId);
+  }
+  return jsonOk({ stats });
+}
+
+async function handleUpdateUserStats(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+
+  const body = await parseBody<{
+    correctCount?: number;
+    wrongCount?: number;
+    mode?: "unit" | "review";
+    wordIds?: string[];
+  }>(request);
+  if (!body) return jsonError("Invalid body", 400);
+
+  let stats = await repoGetUserStats(env, session.userId);
+  if (!stats) {
+    stats = await repoCreateUserStats(env, session.userId);
+  }
+
+  const correctCount = body.correctCount ?? 0;
+  const wrongCount = body.wrongCount ?? 0;
+  const mode = body.mode ?? "unit";
+  const totalWords = correctCount + wrongCount;
+
+  // XP calculation
+  let xpEarned = 0;
+  if (mode === "unit") {
+    xpEarned += totalWords * 10;
+    xpEarned += correctCount * 5; // bonus for correct first attempts
+  } else {
+    xpEarned += totalWords * 5;
+  }
+
+  const newXp = stats.xp + xpEarned;
+  const newLevel = Math.floor(Math.sqrt(newXp / 100)) + 1;
+
+  // Streak calculation
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  let newStreakCount = stats.streakCount;
+  if (stats.lastActiveDate !== todayStr) {
+    if (stats.lastActiveDate !== null) {
+      const lastDate = new Date(stats.lastActiveDate);
+      const diffDays = Math.floor(
+        (today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24),
+      );
+      if (diffDays === 1) {
+        newStreakCount = stats.streakCount + 1;
+      } else {
+        newStreakCount = 1;
+      }
+    } else {
+      newStreakCount = 1;
+    }
+  }
+
+  // Update stats (camelCase keys, mapped to snake_case in repository)
+  const updates: Record<string, unknown> = {
+    xp: newXp,
+    level: newLevel,
+    streakCount: newStreakCount,
+    lastActiveDate: todayStr,
+  };
+  if (mode === "unit") {
+    updates.totalTestsCompleted = stats.totalTestsCompleted + 1;
+  } else {
+    updates.totalReviewsCompleted = stats.totalReviewsCompleted + 1;
+  }
+  updates.totalCorrect = stats.totalCorrect + correctCount;
+  updates.totalWrong = stats.totalWrong + wrongCount;
+
+  if (correctCount > 0) {
+    updates.wordsLearnedCount = stats.wordsLearnedCount + correctCount;
+  }
+
+  stats = await repoUpsertUserStats(env, session.userId, updates as any);
+
+  // Achievement checking
+  const existingAchievements = await repoGetUserAchievements(env, session.userId);
+  const existingIds = new Set(existingAchievements.map((a) => a.achievementId));
+  const newAchievements: { id: string; name: string; icon: string }[] = [];
+
+  const ach = ACHIEVEMENT_DEFINITIONS;
+
+  function tryUnlock(id: string) {
+    if (!existingIds.has(id)) {
+      const def = ach.find((a) => a.id === id);
+      if (def) newAchievements.push({ id: def.id, name: def.name, icon: def.icon });
+    }
+  }
+
+  if (mode === "unit") {
+    if (stats.totalTestsCompleted >= 1) tryUnlock("first_test");
+    if (wrongCount === 0 && totalWords >= 5) tryUnlock("perfect_score");
+    if (stats.wordsLearnedCount >= 10) tryUnlock("words_10");
+    if (stats.wordsLearnedCount >= 50) tryUnlock("words_50");
+    if (stats.wordsLearnedCount >= 100) tryUnlock("words_100");
+    if (stats.wordsLearnedCount >= 500) tryUnlock("words_500");
+  }
+  if (newStreakCount >= 3) tryUnlock("streak_3");
+  if (newStreakCount >= 7) tryUnlock("streak_7");
+  if (newStreakCount >= 30) tryUnlock("streak_30");
+  if (stats.totalReviewsCompleted >= 10) tryUnlock("reviews_10");
+  if (stats.totalReviewsCompleted >= 50) tryUnlock("reviews_50");
+  if (stats.totalReviewsCompleted >= 100) tryUnlock("reviews_100");
+  if (correctCount === totalWords && totalWords >= 10 && mode === "unit") tryUnlock("speed_demon");
+
+  // Persist new achievements
+  await Promise.all(
+    newAchievements.map((a) => repoUnlockAchievement(env, session.userId, a.id)),
+  );
+
+  return jsonOk({ stats, xpEarned, newAchievements });
+}
+
+async function handleGetUserAchievements(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+
+  const achievements = await repoGetUserAchievements(env, session.userId);
+  return jsonOk({ achievements });
+}
+
+const ACHIEVEMENT_DEFINITIONS = [
+  { id: "first_test", name: "First Steps", icon: "🎯", desc: "Complete your first test" },
+  { id: "perfect_score", name: "Perfect Score", icon: "💯", desc: "Get 100% on a test (5+ words)" },
+  { id: "streak_3", name: "Getting Started", icon: "🔥", desc: "3-day study streak" },
+  { id: "streak_7", name: "Week Warrior", icon: "🔥", desc: "7-day study streak" },
+  { id: "streak_30", name: "Monthly Master", icon: "🔥", desc: "30-day study streak" },
+  { id: "words_10", name: "Vocabulary Novice", icon: "📖", desc: "Learn 10 words" },
+  { id: "words_50", name: "Vocabulary Learner", icon: "📖", desc: "Learn 50 words" },
+  { id: "words_100", name: "Vocabulary Builder", icon: "📚", desc: "Learn 100 words" },
+  { id: "words_500", name: "Vocabulary Master", icon: "📚", desc: "Learn 500 words" },
+  { id: "reviews_10", name: "Reviewer", icon: "🔄", desc: "Complete 10 review sessions" },
+  { id: "reviews_50", name: "Dedicated Reviewer", icon: "🔄", desc: "Complete 50 review sessions" },
+  { id: "reviews_100", name: "Review Legend", icon: "🔄", desc: "Complete 100 review sessions" },
+  { id: "speed_demon", name: "Speed Demon", icon: "⚡", desc: "Answer 10+ words all correctly in one test" },
+];
 
 // ===================== AI HANDLER =====================
 

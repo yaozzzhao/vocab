@@ -45,3 +45,36 @@ export interface ApiResponse<T = unknown> {
   data: T | null;
   error: string | null;
 }
+
+export interface UserStats {
+  userId: number;
+  xp: number;
+  level: number;
+  streakCount: number;
+  lastActiveDate: string | null;
+  totalTestsCompleted: number;
+  totalCorrect: number;
+  totalWrong: number;
+  totalReviewsCompleted: number;
+  wordsLearnedCount: number;
+}
+
+export interface UserAchievement {
+  id: number;
+  userId: number;
+  achievementId: string;
+  unlockedAt: number;
+}
+
+export interface AchievementDef {
+  id: string;
+  name: string;
+  icon: string;
+  desc: string;
+}
+
+export interface StatUpdateResult {
+  stats: UserStats;
+  xpEarned: number;
+  newAchievements: { id: string; name: string; icon: string }[];
+}
