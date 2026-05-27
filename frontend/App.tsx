@@ -9,7 +9,7 @@ import { UserManagement } from "./components/UserManagement";
 import { ErrorBook } from "./components/ErrorBook";
 import { WordLibrary } from "./components/WordLibrary";
 import { GamificationHub, XpPopup } from "./components/GamificationHub";
-import { LogOut, Users, BookX, Library, Trophy } from "lucide-react";
+import { LogOut, Users, BookX, Library, Trophy, HomeIcon, Settings, Sparkles, ChevronDown } from "lucide-react";
 import { clearSession, getUserStats, updateUserStats } from "./db";
 
 const App: React.FC = () => {
@@ -17,7 +17,6 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>("home");
   const [testConfig, setTestConfig] = useState<TestConfig | null>(null);
 
-  // Gamification state
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [showGamification, setShowGamification] = useState(false);
   const [xpPopupVisible, setXpPopupVisible] = useState(false);
@@ -25,6 +24,7 @@ const App: React.FC = () => {
   const [achievementToasts, setAchievementToasts] = useState<
     { id: string; message: string; icon: string }[]
   >([]);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const {
     words,
@@ -41,13 +41,10 @@ const App: React.FC = () => {
     try {
       const stats = await getUserStats();
       setUserStats(stats);
-    } catch {
-      // stats not available yet
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
-    // 从 sessionStorage 恢复已登录用户（不含 passwordHash）
     const savedUser = sessionStorage.getItem("currentUser");
     if (savedUser) {
       try {
@@ -72,6 +69,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setCurrentUser(null);
     clearSession();
+    setShowUserMenu(false);
   };
 
   const dismissToast = (id: string) => {
@@ -84,8 +82,11 @@ const App: React.FC = () => {
 
   if (!isLoaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-stone-500 font-serif">
-        Loading User Data...
+      <div className="min-h-screen flex items-center justify-center bg-stone-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-brand-200 border-t-brand-500 rounded-full animate-spin" />
+          <p className="text-stone-400 font-medium">Loading...</p>
+        </div>
       </div>
     );
   }
@@ -109,7 +110,6 @@ const App: React.FC = () => {
       );
     }
 
-    // Update gamification stats
     if (testConfig) {
       try {
         const result = await updateUserStats({
@@ -131,122 +131,129 @@ const App: React.FC = () => {
           }));
           setAchievementToasts((prev) => [...prev, ...toasts]);
         }
-      } catch {
-        // stats update failed silently
-      }
+      } catch {}
     }
 
     setCurrentView("home");
     setTestConfig(null);
   };
 
+  const navigateToHome = () => {
+    setCurrentView("home");
+    setShowUserMenu(false);
+  };
+
+  const navigateTo = (view: ViewState) => {
+    setCurrentView(view);
+    setShowUserMenu(false);
+  };
+
+  const isTestView = currentView === "test";
+
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="bg-stone-50/80 backdrop-blur-sm border-b border-stone-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <div
-            className="flex items-center cursor-pointer group"
-            onClick={() => setCurrentView("home")}
-          >
-            <h1 className="text-2xl font-serif font-bold text-stone-900 tracking-tight">
-              VocabMaster
-            </h1>
-          </div>
-
-          <nav className="flex items-center space-x-2 sm:space-x-4">
-            <span className="hidden sm:inline text-sm text-stone-600">
-              Welcome, <span className="font-bold">{currentUser.username}</span>
-              !
-            </span>
-            <button
-              onClick={() => setCurrentView("home")}
-              className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                currentView === "home"
-                  ? "bg-stone-200 text-stone-800"
-                  : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
-              }`}
-              title="Home"
-            >
-              Home
+    <div className="min-h-screen bg-stone-50 flex flex-col">
+      {/* Thin Top Bar - Duolingo style */}
+      {!isTestView && (
+        <header className="bg-white/90 backdrop-blur-md border-b border-stone-200 sticky top-0 z-20">
+          <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
+            <button onClick={navigateToHome} className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">V</span>
+              </div>
+              <span className="font-bold text-stone-800 hidden sm:inline">VocabMaster</span>
             </button>
-            {currentUser.role === "admin" && (
+
+            <div className="flex items-center gap-2">
+              {/* Streak */}
+              <div className="flex items-center gap-1 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                <svg className="w-4 h-4 text-amber-500" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C12 2 7 8 7 13C7 17.4183 9.23858 21 12 21C14.7614 21 17 17.4183 17 13C17 8 12 2 12 2Z" />
+                </svg>
+                <span className="text-xs font-bold text-amber-700">{userStats?.streakCount ?? 0}</span>
+              </div>
+
+              {/* XP */}
+              <div className="flex items-center gap-1 bg-brand-50 px-2.5 py-1.5 rounded-lg border border-brand-200">
+                <Sparkles className="w-3.5 h-3.5 text-brand-500" />
+                <span className="text-xs font-bold text-brand-700">{userStats?.xp ?? 0}</span>
+              </div>
+
+              {/* Trophy */}
               <button
-                onClick={() => setCurrentView("manage")}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  currentView === "manage"
-                    ? "bg-stone-200 text-stone-800"
-                    : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
-                }`}
-                title="Manage Vocabulary"
+                onClick={() => setShowGamification(true)}
+                className="p-2 rounded-lg hover:bg-stone-100 transition-colors text-stone-500"
+                title="Progress"
               >
-                Manage
+                <Trophy className="w-5 h-5" />
               </button>
-            )}
-            <button
-              onClick={() => setCurrentView("error_book")}
-              className={`relative p-2 rounded-md text-sm font-medium transition-colors ${
-                currentView === "error_book"
-                  ? "bg-stone-200 text-stone-800"
-                  : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
-              }`}
-              title="Error Book"
-            >
-              <BookX className="w-5 h-5" />
-              {mistakes.length > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
-                  {mistakes.length}
-                </span>
-              )}
-            </button>
-            {currentUser.role === "admin" && (
-              <>
-                <button
-                  onClick={() => setCurrentView("word_library")}
-                  className={`p-2 rounded-md flex items-center transition-colors ${
-                    currentView === "word_library"
-                      ? "bg-stone-200 text-stone-800"
-                      : "text-stone-500 hover:bg-stone-100"
-                  }`}
-                  title="Word Library"
-                >
-                  <Library className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => setCurrentView("user_management")}
-                  className={`p-2 rounded-md flex items-center transition-colors ${
-                    currentView === "user_management"
-                      ? "bg-stone-200 text-stone-800"
-                      : "text-stone-500 hover:bg-stone-100"
-                  }`}
-                  title="User Management"
-                >
-                  <Users className="w-5 h-5" />
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => setShowGamification(true)}
-              className={`relative p-2 rounded-md transition-colors ${
-                showGamification
-                  ? "bg-stone-200 text-stone-800"
-                  : "text-stone-500 hover:bg-stone-100"
-              }`}
-              title="Progress"
-            >
-              <Trophy className="w-5 h-5" />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-md text-stone-500 hover:bg-stone-100"
-              title="Logout"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </nav>
-        </div>
-      </header>
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-12">
+              {/* User Menu */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu((v) => !v)}
+                  className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-stone-100 transition-colors"
+                >
+                  <div className="w-7 h-7 bg-brand-200 rounded-full flex items-center justify-center">
+                    <span className="text-xs font-bold text-brand-700">
+                      {currentUser.username[0].toUpperCase()}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-stone-400" />
+                </button>
+
+                {showUserMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl border border-stone-200 shadow-lg py-1 z-20 animate-slide-down">
+                      <div className="px-4 py-2 border-b border-stone-100">
+                        <p className="text-sm font-medium text-stone-800">{currentUser.username}</p>
+                        <p className="text-xs text-stone-400 capitalize">{currentUser.role}</p>
+                      </div>
+                      {currentUser.role === "admin" && (
+                        <>
+                          <button
+                            onClick={() => navigateTo("manage")}
+                            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
+                          >
+                            <Settings className="w-4 h-4" />
+                            Manage Vocab
+                          </button>
+                          <button
+                            onClick={() => navigateTo("word_library")}
+                            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
+                          >
+                            <Library className="w-4 h-4" />
+                            Word Library
+                          </button>
+                          <button
+                            onClick={() => navigateTo("user_management")}
+                            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
+                          >
+                            <Users className="w-4 h-4" />
+                            User Management
+                          </button>
+                        </>
+                      )}
+                      <div className="border-t border-stone-100 mt-1 pt-1">
+                        <button
+                          onClick={handleLogout}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* Main Content */}
+      <main className="flex-1 w-full px-4 py-6 sm:py-8 max-w-4xl mx-auto">
         {currentView === "home" && (
           <Home
             words={words}
@@ -292,6 +299,41 @@ const App: React.FC = () => {
         )}
       </main>
 
+      {/* Bottom Tab Bar - Mobile */}
+      {!isTestView && (
+        <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 z-20 safe-area-bottom">
+          <div className="flex items-center justify-around h-16 px-2">
+            <TabButton
+              icon={<HomeIcon className="w-5 h-5" />}
+              label="Home"
+              active={currentView === "home"}
+              onClick={() => navigateTo("home")}
+            />
+            <TabButton
+              icon={
+                <div className="relative">
+                  <BookX className="w-5 h-5" />
+                  {mistakes.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
+                      {mistakes.length}
+                    </span>
+                  )}
+                </div>
+              }
+              label="Error Book"
+              active={currentView === "error_book"}
+              onClick={() => navigateTo("error_book")}
+            />
+            <TabButton
+              icon={<Trophy className="w-5 h-5" />}
+              label="Progress"
+              active={false}
+              onClick={() => setShowGamification(true)}
+            />
+          </div>
+        </nav>
+      )}
+
       {showGamification && (
         <GamificationHub
           stats={userStats}
@@ -305,5 +347,22 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+const TabButton: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}> = ({ icon, label, active, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`flex flex-col items-center justify-center gap-0.5 px-4 py-2 rounded-xl transition-colors ${
+      active ? "text-brand-600" : "text-stone-400 hover:text-stone-600"
+    }`}
+  >
+    {icon}
+    <span className="text-[10px] font-medium">{label}</span>
+  </button>
+);
 
 export default App;
