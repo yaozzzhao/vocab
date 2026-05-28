@@ -6,6 +6,7 @@ interface FilterState {
   publisher: string;
   grade: number | null;
   semester: string;
+  unit: string;
 }
 
 interface ErrorBookProps {
@@ -22,6 +23,7 @@ export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTe
     publisher: "",
     grade: null,
     semester: "",
+    unit: "",
   });
 
   const mistakenWords = useMemo(() => {
@@ -47,13 +49,20 @@ export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTe
     return Array.from(set).sort();
   }, [words]);
 
-  const hasFilter = availablePublishers.length > 0 || availableGrades.length > 0;
+  const availableUnits = useMemo(() => {
+    const set = new Set<string>();
+    mistakenWords.forEach((w) => { if (w.unit) set.add(w.unit); });
+    return Array.from(set).sort();
+  }, [mistakenWords]);
+
+  const hasFilter = availablePublishers.length > 0 || availableGrades.length > 0 || availableUnits.length > 0;
 
   const filteredWords = useMemo(() => {
     return mistakenWords.filter((w) => {
       if (filter.publisher && w.publisher !== filter.publisher) return false;
       if (filter.grade != null && w.grade !== filter.grade) return false;
       if (filter.semester && w.semester !== filter.semester) return false;
+      if (filter.unit && w.unit !== filter.unit) return false;
       return true;
     });
   }, [mistakenWords, filter]);
@@ -194,9 +203,29 @@ export const ErrorBook: React.FC<ErrorBookProps> = ({ words, mistakes, onStartTe
                   </div>
                 </div>
               )}
-              {(filter.publisher || filter.grade !== null || filter.semester) && (
+              {availableUnits.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2">Unit</p>
+                  <div className="flex flex-wrap gap-2">
+                    {["", ...availableUnits].map((unit) => (
+                      <button
+                        key={unit || "all"}
+                        onClick={() => setFilter((f) => ({ ...f, unit }))}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                          filter.unit === unit
+                            ? "bg-brand-500 text-white shadow-sm"
+                            : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                        }`}
+                      >
+                        {unit || "All"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(filter.publisher || filter.grade !== null || filter.semester || filter.unit) && (
                 <button
-                  onClick={() => setFilter({ publisher: "", grade: null, semester: "" })}
+                  onClick={() => setFilter({ publisher: "", grade: null, semester: "", unit: "" })}
                   className="text-sm text-brand-600 font-medium hover:underline"
                 >
                   Clear all filters
