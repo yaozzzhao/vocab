@@ -10,8 +10,10 @@ import { ErrorBook } from "./components/ErrorBook";
 import { WordLibrary } from "./components/WordLibrary";
 import { GamificationHub, XpPopup } from "./components/GamificationHub";
 import { LeftSidebar, RightSidebar } from "./components/Sidebar";
+import { AvatarDisplay, AvatarPicker } from "./components/Avatar";
 import { LogOut, Users, BookX, Library, Trophy, HomeIcon, Settings, Sparkles, ChevronDown, Lock, KeyRound, X, AlertCircle, CheckCircle2 } from "lucide-react";
-import { clearSession, getUserStats, updateUserStats } from "./db";
+import * as db from "./db";
+const { clearSession, getUserStats, updateUserStats } = db;
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -33,6 +35,7 @@ const App: React.FC = () => {
   const [cpError, setCpError] = useState<string | null>(null);
   const [cpSuccess, setCpSuccess] = useState(false);
   const [cpLoading, setCpLoading] = useState(false);
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
 
   const {
     words,
@@ -237,14 +240,11 @@ const App: React.FC = () => {
               {/* User Menu */}
               <div className="relative">
                 <button
+                  type="button"
                   onClick={() => setShowUserMenu((v) => !v)}
                   className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-stone-100 transition-colors"
                 >
-                  <div className="w-7 h-7 bg-brand-200 rounded-full flex items-center justify-center">
-                    <span className="text-xs font-bold text-brand-700">
-                      {currentUser.username[0].toUpperCase()}
-                    </span>
-                  </div>
+                  <AvatarDisplay user={currentUser} size={28} />
                   <ChevronDown className="w-3.5 h-3.5 text-stone-400" />
                 </button>
 
@@ -259,6 +259,7 @@ const App: React.FC = () => {
                       {currentUser.role === "admin" && (
                         <>
                           <button
+                            type="button"
                             onClick={() => navigateTo("manage")}
                             className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
                           >
@@ -266,6 +267,7 @@ const App: React.FC = () => {
                             Manage Vocab
                           </button>
                           <button
+                            type="button"
                             onClick={() => navigateTo("word_library")}
                             className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
                           >
@@ -273,6 +275,7 @@ const App: React.FC = () => {
                             Word Library
                           </button>
                           <button
+                            type="button"
                             onClick={() => navigateTo("user_management")}
                             className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
                           >
@@ -283,6 +286,15 @@ const App: React.FC = () => {
                       )}
                       <div className="border-t border-stone-100 mt-1 pt-1">
                         <button
+                          type="button"
+                          onClick={() => { setShowUserMenu(false); setShowAvatarPicker(true); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          Change Avatar
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => { setShowUserMenu(false); setShowChangePassword(true); setCpError(null); setCpSuccess(false); setCpCurrent(''); setCpNew(''); }}
                           className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
                         >
@@ -290,6 +302,7 @@ const App: React.FC = () => {
                           Change Password
                         </button>
                         <button
+                          type="button"
                           onClick={handleLogout}
                           className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
                         >
@@ -526,6 +539,24 @@ const App: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+
+      {showAvatarPicker && (
+        <AvatarPicker
+          currentAvatar={currentUser.avatar}
+          onSelect={async (avatar) => {
+            try {
+              await db.updateAvatar(avatar);
+              const updated = { ...currentUser, avatar };
+              setCurrentUser(updated);
+              sessionStorage.setItem("currentUser", JSON.stringify(updated));
+              setShowAvatarPicker(false);
+            } catch (err) {
+              alert(err instanceof Error ? err.message : "Failed to update avatar");
+            }
+          }}
+          onClose={() => setShowAvatarPicker(false)}
+        />
       )}
     </div>
   );

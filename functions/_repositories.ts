@@ -11,6 +11,7 @@ export interface UserRecord {
   securityQuestion: string;
   securityAnswerHash: string;
   securityAnswerSalt: string;
+  avatar: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -63,7 +64,7 @@ async function sbFetch(
   });
 }
 
-async function sbGet<T>(env: Env, path: string): Promise<T[]> {
+export async function sbGet<T>(env: Env, path: string): Promise<T[]> {
   const res = await sbFetch(env, path);
   if (!res.ok) {
     const err = await res.text();
@@ -117,11 +118,12 @@ interface UserRow {
   security_question: string;
   security_answer_hash: string;
   security_answer_salt: string;
+  avatar: string | null;
   created_at: number;
   updated_at: number;
 }
 
-interface WordRow {
+export interface WordRow {
   id: string;
   unit: string;
   word: string;
@@ -158,6 +160,7 @@ function rowToUser(row: UserRow): UserRecord {
     securityQuestion: row.security_question,
     securityAnswerHash: row.security_answer_hash,
     securityAnswerSalt: row.security_answer_salt,
+    avatar: row.avatar,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -275,6 +278,14 @@ export async function getUserById(
   return rows[0] ? rowToUser(rows[0]) : null;
 }
 
+export async function updateUserAvatar(
+  env: Env,
+  userId: number,
+  avatar: string,
+): Promise<void> {
+  await sbPatch(env, `/users?id=eq.${userId}`, { avatar });
+}
+
 export async function updateUserPassword(
   env: Env,
   userId: number,
@@ -305,9 +316,9 @@ export async function getUserSecurityQuestion(
 export async function getAllUsers(env: Env): Promise<PublicUser[]> {
   const rows = await sbGet<UserRow>(
     env,
-    `/users?select=id,username,role&order=id.asc`,
+    `/users?select=id,username,role,avatar&order=id.asc`,
   );
-  return rows.map((r) => ({ id: r.id, username: r.username, role: r.role }));
+  return rows.map((r) => ({ id: r.id, username: r.username, role: r.role, avatar: r.avatar ?? undefined }));
 }
 
 export async function updateUserRole(

@@ -12,6 +12,7 @@ import {
   BarChart3,
   Target,
 } from "lucide-react";
+import { AvatarDisplay } from "./Avatar";
 
 function dayOfYear(): number {
   const now = new Date();
@@ -73,11 +74,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({ user, stats }) => {
     <div className="h-full flex flex-col gap-4">
       {/* User Profile */}
       <div className="flex items-center gap-3 px-1">
-        <div className="w-10 h-10 bg-brand-200 rounded-full flex items-center justify-center shrink-0">
-          <span className="text-sm font-bold text-brand-700">
-            {user.username[0].toUpperCase()}
-          </span>
-        </div>
+        <AvatarDisplay user={user} size={40} />
         <div className="min-w-0">
           <p className="font-semibold text-stone-800 text-sm truncate">
             {user.username}

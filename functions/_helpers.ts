@@ -28,6 +28,7 @@ export interface PublicUser {
   id: number;
   username: string;
   role: "admin" | "user";
+  avatar?: string;
 }
 
 export function jsonOk<T>(data: T, status = 200): Response {

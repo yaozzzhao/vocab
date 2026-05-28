@@ -111,6 +111,13 @@ export async function resetPassword(
   });
 }
 
+export async function updateAvatar(avatar: string): Promise<void> {
+  await apiFetch("/api/auth/avatar", {
+    method: "POST",
+    body: JSON.stringify({ avatar }),
+  });
+}
+
 // ── User Functions (保留原有签名，管理功能用) ─────────────────────────────────
 
 export const addUser = async (_user: Omit<User, "id">): Promise<void> => {

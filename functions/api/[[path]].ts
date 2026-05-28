@@ -16,6 +16,7 @@ import {
   getAllUsers,
   updateUserRole,
   updateUserPassword,
+  updateUserAvatar,
   getUserSecurityQuestion,
   addWords as repoAddWords,
   getWords as repoGetWords,
@@ -25,6 +26,8 @@ import {
   removeMistake as repoRemoveMistake,
   ensureAdmin,
   normalizeUsername,
+  sbGet,
+  WordRow,
 } from "../_repositories";
 import { callGeminiGenerateContent } from "../_gemini";
 import {
@@ -89,6 +92,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (path === "/api/auth/reset-password" && method === "POST") {
       return await handleResetPassword(request, env);
     }
+    if (path === "/api/auth/avatar" && method === "POST") {
+      return await handleUpdateAvatar(request, env);
+    }
 
     // ===================== USER ROUTES =====================
     if (path === "/api/users" && method === "GET") {
@@ -148,6 +154,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // ===================== ENRICHMENT (admin, API-key) =====================
     if (path === "/api/admin/enrich" && method === "POST") {
       return await handleEnrichBatch(request, env);
+    }
+    if (path === "/api/admin/enrich-free" && method === "POST") {
+      return await handleEnrichFree(request, env);
     }
 
     // ===================== VERTEX PROXY =====================
@@ -228,6 +237,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     id: userRecord.id,
     username: userRecord.username,
     role: userRecord.role,
+    avatar: userRecord.avatar ?? undefined,
   };
   return jsonOk({ user, token });
 }
@@ -275,6 +285,7 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     id: userRecord.id,
     username: userRecord.username,
     role: userRecord.role,
+    avatar: userRecord.avatar ?? undefined,
   };
   return jsonOk({ user, token }, 201);
 }
@@ -310,6 +321,24 @@ async function handleChangePassword(request: Request, env: Env): Promise<Respons
 
   await updateUserPassword(env, session.userId, body.newPassword);
   return jsonOk({ message: "密码修改成功" });
+}
+
+async function handleUpdateAvatar(request: Request, env: Env): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+
+  const body = await parseBody<{ avatar: string }>(request);
+  if (!body || typeof body.avatar !== "string") {
+    return jsonError("avatar string required", 400);
+  }
+
+  const avatar = body.avatar;
+  if (avatar.length > 50000) {
+    return jsonError("Avatar too large", 400);
+  }
+
+  await updateUserAvatar(env, session.userId, avatar);
+  return jsonOk({ avatar });
 }
 
 async function handleGetSecurityQuestion(request: Request, env: Env): Promise<Response> {
@@ -363,6 +392,7 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
     id: userRecord.id,
     username: userRecord.username,
     role: userRecord.role,
+    avatar: userRecord.avatar ?? undefined,
   };
   return jsonOk({ user });
 }
@@ -894,7 +924,7 @@ ${wordLines}`;
       enriched.push({ id: wordId, word: body.words[idx].word, phonetic, meaning });
     }
 
-    return jsonOk({ enriched, total: body.words.length });
+  return jsonOk({ enriched, total: words.length });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("Enrichment error:", err);
@@ -924,4 +954,98 @@ function extractEnrichJson(text: string): Array<Record<string, unknown>> {
     }
     return [];
   }
+}
+
+async function handleEnrichFree(request: Request, env: Env): Promise<Response> {
+  const apiKey = request.headers.get("X-API-Key");
+  if (!apiKey || apiKey !== env.ENRICH_API_KEY) {
+    return jsonError("Unauthorized", 401);
+  }
+
+  const body = await parseBody<{
+    words?: Array<{ id: string; word: string; pos?: string }>;
+    unit?: string;
+    limit?: number;
+  }>(request);
+
+  if (!body) {
+    return jsonError("Invalid request body", 400);
+  }
+
+  let words = body.words ?? [];
+
+  // If unit specified (and no words passed), fetch unenriched words from DB
+  if (words.length === 0 && body.unit) {
+    try {
+      const limit = Math.min(body.limit ?? 50, 200);
+      const rows = await sbGet<WordRow>(
+        env,
+        `/words?unit=eq.${encodeURIComponent(body.unit)}&or=(phonetic.eq.,meaning.eq.)&select=id,word,pos&limit=${limit}`,
+      );
+      words = rows.map((r) => ({ id: r.id, word: r.word, pos: r.pos ?? undefined }));
+    } catch (e) {
+      return jsonError("Failed to fetch words from database: " + (e instanceof Error ? e.message : String(e)), 500);
+    }
+  }
+
+  if (words.length === 0) {
+    return jsonError("No words to enrich", 400);
+  }
+
+  const enriched: Array<{ id: string; word: string; phonetic: string; meaning: string }> = [];
+
+  for (const w of words) {
+    let phonetic = "";
+    let meaning = "";
+
+    try {
+      const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w.word)}`;
+      const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+      if (res.ok) {
+        const data = (await res.json()) as Array<Record<string, unknown>>;
+        if (data?.[0]) {
+          const entry = data[0];
+          if (typeof entry.phonetic === "string" && entry.phonetic) {
+            phonetic = entry.phonetic as string;
+          } else {
+            const phonetics = entry.phonetics as Array<Record<string, unknown>> | undefined;
+            if (phonetics) {
+              for (const ph of phonetics) {
+                if (typeof ph.text === "string" && ph.text) {
+                  phonetic = ph.text as string;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(w.word)}`;
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+      if (res.ok) {
+        const data = (await res.json()) as Array<unknown>;
+        if (data?.[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]) && data[0][0]?.[0]) {
+          meaning = String((data[0][0] as Array<unknown>)[0] as string);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (phonetic || meaning) {
+      try {
+        await repoUpdateWord(env, null, w.id, { phonetic, meaning });
+        enriched.push({ id: w.id, word: w.word, phonetic, meaning });
+      } catch {
+        // skip if update fails
+      }
+    }
+  }
+
+  return jsonOk({ enriched, total: words.length });
 }

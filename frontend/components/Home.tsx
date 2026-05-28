@@ -139,10 +139,14 @@ export const Home: React.FC<HomeProps> = ({
     if (!wordCountModal) return;
     const count = Math.min(wordCountModal.value, wordCountModal.total);
     const unitWords = filteredWords
-      .filter((w) => w.unit === wordCountModal.unitName)
-      .slice(0, count);
+      .filter((w) => w.unit === wordCountModal.unitName);
+    const shuffled = [...unitWords];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
     setWordCountModal(null);
-    onStartTest({ mode: "unit", unitName: wordCountModal.unitName, words: unitWords });
+    onStartTest({ mode: "unit", unitName: wordCountModal.unitName, words: shuffled.slice(0, count) });
   }, [wordCountModal, filteredWords, onStartTest]);
 
   if (words.length === 0) {
