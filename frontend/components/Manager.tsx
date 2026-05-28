@@ -7,6 +7,7 @@ import {
   FileText,
 } from "lucide-react";
 import { Word } from "../types";
+import { ManualWordEntry } from "./ManualWordEntry";
 
 interface ManagerProps {
   onAddWords: (
@@ -397,6 +398,10 @@ export const Manager: React.FC<ManagerProps> = ({
           <p><strong>CSV:</strong> word,meaning,unit,phonetic,page (header row required)</p>
           <p><strong>TSV:</strong> Paste from Excel/Sheets — columns are auto-detected</p>
           <p><strong>JSON:</strong> Array of objects, or {"{"}"vocabulary_list":{"{"}"Unit 1": [...]{"}"}{"}"}</p>
+        </div>
+
+        <div className="border-t border-stone-200 pt-6">
+          <ManualWordEntry totalWords={totalWords} />
         </div>
 
         {error && (

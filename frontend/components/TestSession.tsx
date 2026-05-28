@@ -241,6 +241,7 @@ export const TestSession: React.FC<TestSessionProps> = ({
     if (isCorrect) {
       playSound("correct");
       setFeedbackState("correct");
+      handlePlayAudio(currentWord.word);
       setAnswers((prev) => ({
         ...prev,
         [currentWord.id]: { input: inputValue.trim(), isCorrect: true },

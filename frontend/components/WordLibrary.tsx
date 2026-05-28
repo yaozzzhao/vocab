@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Search, Plus, Pencil, Trash2, Download, Upload, X, Check,
+  Search, Pencil, Trash2, Download, Sparkles, X, Check,
   AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Loader2
 } from 'lucide-react';
 import { Word } from '../types';
 import * as db from '../db';
-import { MappingWizard } from './MappingWizard';
 
 interface WordLibraryProps {
   currentUserId: number;
@@ -27,17 +26,9 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
   const [editForm, setEditForm] = useState<Omit<Word, 'id' | 'ownerId'>>({ unit: '', word: '', phonetic: '', meaning: '' });
   const [saving, setSaving] = useState(false);
 
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState<Omit<Word, 'id' | 'ownerId'>>({ unit: '', word: '', phonetic: '', meaning: '' });
-  const [adding, setAdding] = useState(false);
-
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-
-  const [isMapping, setIsMapping] = useState(false);
-  const [detectedKeys, setDetectedKeys] = useState<string[]>([]);
-  const [rawData, setRawData] = useState<any[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [enriching, setEnriching] = useState(false);
 
   const fetchWords = useCallback(async () => {
     setLoading(true);
@@ -58,12 +49,17 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     setTimeout(() => setSuccess(null), 3000);
   };
 
-  const units = Array.from(new Set(words.map(w => w.unit))).sort();
+  const publisherUnits = Array.from(
+    new Set(words.map(w => `${w.publisher || "?"}||${w.unit}`))
+  ).sort().map(key => {
+    const [publisher, unit] = key.split("||");
+    return { publisher, unit, key };
+  });
 
   const filtered = words.filter(w => {
     const q = searchQuery.toLowerCase();
     const matchSearch = !q || w.word.toLowerCase().includes(q) || w.meaning.toLowerCase().includes(q);
-    const matchUnit = !filterUnit || w.unit === filterUnit;
+    const matchUnit = !filterUnit || `${w.publisher || "?"}||${w.unit}` === filterUnit;
     return matchSearch && matchUnit;
   });
 
@@ -99,26 +95,6 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     }
   };
 
-  const handleAdd = async () => {
-    if (!addForm.unit.trim() || !addForm.word.trim() || !addForm.meaning.trim()) {
-      setError('Unit, word, and meaning cannot be empty');
-      return;
-    }
-    setAdding(true);
-    setError(null);
-    try {
-      await db.addWords([addForm], currentUserId);
-      await fetchWords();
-      setAddForm({ unit: '', word: '', phonetic: '', meaning: '' });
-      setShowAddForm(false);
-      showSuccess('Word added');
-    } catch (e: any) {
-      setError(e.message || 'Add failed');
-    } finally {
-      setAdding(false);
-    }
-  };
-
   const deleteSingle = async (wordId: string) => {
     if (!window.confirm('Delete this word?')) return;
     setDeletingIds(prev => new Set(prev).add(wordId));
@@ -148,6 +124,35 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
       setError(e.message || 'Batch delete failed');
     } finally {
       setDeletingIds(new Set());
+    }
+  };
+
+  const enrichSelected = async () => {
+    if (selectedIds.size === 0) return;
+    setEnriching(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch("/api/admin/enrich-words", {
+        method: "POST",
+        headers: { ...db.getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Enrich failed");
+      await fetchWords();
+      const { enriched, skipped } = data.data;
+      if (enriched.length > 0) {
+        showSuccess(`Enriched ${enriched.length} word${enriched.length > 1 ? "s" : ""}${skipped.length > 0 ? `, ${skipped.length} skipped` : ""}`);
+      } else if (skipped.length > 0) {
+        const reasons = skipped.map((s: any) => `"${s.word}": ${s.reason}`).join("; ");
+        setError(`No words enriched. ${reasons}`);
+      }
+      setSelectedIds(new Set());
+    } catch (e: any) {
+      setError(e.message || "Enrich failed");
+    } finally {
+      setEnriching(false);
     }
   };
 
@@ -184,77 +189,6 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    setError(null);
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const parsed = JSON.parse(e.target?.result as string);
-        if (!Array.isArray(parsed)) throw new Error('JSON file must contain an array');
-        let flat: any[] = [];
-        if (parsed.length > 0 && parsed[0]?.vocabulary_list) {
-          const vl = parsed[0].vocabulary_list;
-          for (const unit in vl) {
-            if (Object.prototype.hasOwnProperty.call(vl, unit) && Array.isArray(vl[unit])) {
-              vl[unit].forEach((obj: any) => { if (obj && typeof obj === 'object') flat.push({ ...obj, unit }); });
-            }
-          }
-        } else {
-          flat = parsed;
-        }
-        if (flat.length === 0 || typeof flat[0] !== 'object') throw new Error('No valid word data found in JSON');
-        setRawData(flat);
-        setDetectedKeys(Object.keys(flat[0]));
-        setIsMapping(true);
-      } catch (err: any) {
-        setError(err.message || 'Failed to parse JSON');
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleConfirmImport = async (mapping: { word: string; meaning: string; unit: string; phonetic: string; page: string }) => {
-    try {
-      const newWords = rawData.map((item, i) => {
-        const word = item[mapping.word];
-        const meaning = item[mapping.meaning];
-        const unit = item[mapping.unit];
-        if (!word || !meaning || !unit) throw new Error(`Row ${i + 1} missing required fields`);
-        return {
-          unit: String(unit),
-          word: String(word),
-          meaning: String(meaning),
-          phonetic: mapping.phonetic ? String(item[mapping.phonetic] || '') : '',
-          page: mapping.page ? String(item[mapping.page] || '') : undefined,
-        };
-      });
-      await db.addWords(newWords, currentUserId);
-      await fetchWords();
-      showSuccess(`Imported ${newWords.length} words`);
-    } catch (e: any) {
-      setError(e.message || 'Import failed');
-    } finally {
-      setIsMapping(false);
-      setRawData([]);
-      setDetectedKeys([]);
-    }
-  };
-
-  if (isMapping) {
-    return (
-      <MappingWizard
-        detectedKeys={detectedKeys}
-        rawData={rawData}
-        onConfirm={handleConfirmImport}
-        onCancel={() => { setIsMapping(false); setRawData([]); setDetectedKeys([]); }}
-      />
-    );
-  }
-
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -270,18 +204,6 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
             <Download className="w-4 h-4" />
             Export
           </button>
-          <label className="inline-flex items-center gap-2 px-4 py-2 border border-stone-300 text-stone-700 rounded-md hover:bg-stone-50 text-sm font-medium transition-colors cursor-pointer">
-            <Upload className="w-4 h-4" />
-            Import
-            <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
-          </label>
-          <button
-            onClick={() => { setShowAddForm(true); setError(null); }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-md hover:bg-slate-900 text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Word
-          </button>
         </div>
       </div>
 
@@ -296,60 +218,6 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md flex items-center gap-2 text-green-800 text-sm">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           {success}
-        </div>
-      )}
-
-      {showAddForm && (
-        <div className="mb-6 p-5 bg-stone-50 border border-stone-200 rounded-lg">
-          <h3 className="font-semibold text-stone-800 mb-4">Add New Word</h3>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <input
-              placeholder="Unit *"
-              value={addForm.unit}
-              onChange={e => setAddForm(f => ({ ...f, unit: e.target.value }))}
-              className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-            <input
-              placeholder="Word *"
-              value={addForm.word}
-              onChange={e => setAddForm(f => ({ ...f, word: e.target.value }))}
-              className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-            <input
-              placeholder="Phonetic"
-              value={addForm.phonetic}
-              onChange={e => setAddForm(f => ({ ...f, phonetic: e.target.value }))}
-              className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-            <input
-              placeholder="Page"
-              value={addForm.page || ''}
-              onChange={e => setAddForm(f => ({ ...f, page: e.target.value }))}
-              className="border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-          </div>
-          <input
-            placeholder="Meaning *"
-            value={addForm.meaning}
-            onChange={e => setAddForm(f => ({ ...f, meaning: e.target.value }))}
-            className="w-full border border-stone-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 mb-3"
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={handleAdd}
-              disabled={adding}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-md hover:bg-slate-900 text-sm font-medium disabled:opacity-50"
-            >
-              {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              Save
-            </button>
-            <button
-              onClick={() => { setShowAddForm(false); setError(null); }}
-              className="px-4 py-2 border border-stone-300 text-stone-700 rounded-md hover:bg-stone-50 text-sm font-medium"
-            >
-              Cancel
-            </button>
-          </div>
         </div>
       )}
 
@@ -369,13 +237,23 @@ export const WordLibrary: React.FC<WordLibraryProps> = ({ currentUserId }) => {
           className="border border-stone-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
         >
           <option value="">All Units</option>
-          {units.map(u => <option key={u} value={u}>{u}</option>)}
+          {publisherUnits.map(({ publisher, unit, key }) => (
+            <option key={key} value={key}>{publisher} &gt; {unit}</option>
+          ))}
         </select>
       </div>
 
       {selectedIds.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 p-3 bg-slate-100 rounded-md">
+        <div className="mb-3 flex items-center gap-3 p-3 bg-slate-100 rounded-md flex-wrap">
           <span className="text-sm text-slate-700 font-medium">{selectedIds.size} selected</span>
+          <button
+            onClick={enrichSelected}
+            disabled={enriching}
+            className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
+          >
+            {enriching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            Enrich
+          </button>
           <button
             onClick={deleteSelected}
             className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"

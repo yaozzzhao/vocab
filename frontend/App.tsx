@@ -2,16 +2,15 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "./store";
 import { ViewState, TestConfig, User, UserStats, Word, PausedTest } from "./types";
 import { Home } from "./components/Home";
-import { Manager } from "./components/Manager";
+import { VocabularyManager } from "./components/VocabularyManager";
 import { TestSession } from "./components/TestSession";
 import { Login } from "./components/Login";
 import { UserManagement } from "./components/UserManagement";
 import { ErrorBook } from "./components/ErrorBook";
-import { WordLibrary } from "./components/WordLibrary";
 import { GamificationHub, XpPopup } from "./components/GamificationHub";
 import { LeftSidebar, RightSidebar } from "./components/Sidebar";
 import { AvatarDisplay, AvatarPicker } from "./components/Avatar";
-import { LogOut, Users, BookX, Library, Trophy, HomeIcon, Settings, Sparkles, ChevronDown, Lock, KeyRound, X, AlertCircle, CheckCircle2 } from "lucide-react";
+import { LogOut, Users, BookX, Trophy, HomeIcon, Settings, Sparkles, ChevronDown, Lock, KeyRound, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import * as db from "./db";
 const { clearSession, getUserStats, updateUserStats } = db;
 
@@ -268,14 +267,6 @@ const App: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => navigateTo("word_library")}
-                            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
-                          >
-                            <Library className="w-4 h-4" />
-                            Word Library
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => navigateTo("user_management")}
                             className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 hover:bg-stone-50"
                           >
@@ -343,11 +334,11 @@ const App: React.FC = () => {
             />
           )}
 
-          {currentView === "manage" && (
-            <Manager
-              onAddWords={addWords}
-              onClearAll={clearAllData}
+          {currentView === "manage" && currentUser.role === "admin" && (
+            <VocabularyManager
+              currentUserId={currentUser.id}
               totalWords={words.length}
+              onClearAll={clearAllData}
             />
           )}
 
@@ -374,10 +365,6 @@ const App: React.FC = () => {
               onRemoveMistake={removeMistake}
               onNavigateHome={navigateToHome}
             />
-          )}
-
-          {currentView === "word_library" && currentUser.role === "admin" && (
-            <WordLibrary currentUserId={currentUser.id} />
           )}
         </main>
 

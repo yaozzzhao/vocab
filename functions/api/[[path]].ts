@@ -29,7 +29,7 @@ import {
   sbGet,
   WordRow,
 } from "../_repositories";
-import { callGeminiGenerateContent } from "../_gemini";
+import { callGeminiGenerateContent, callGeminiVision } from "../_gemini";
 import {
   updateWord as repoUpdateWord,
   deleteWord as repoDeleteWord,
@@ -157,6 +157,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
     if (path === "/api/admin/enrich-free" && method === "POST") {
       return await handleEnrichFree(request, env);
+    }
+    if (path === "/api/admin/ocr-import" && method === "POST") {
+      return await handleOcrImport(request, env);
+    }
+    if (path === "/api/admin/manual-add" && method === "POST") {
+      return await handleManualAdd(request, env);
+    }
+    if (path === "/api/admin/enrich-words" && method === "POST") {
+      return await handleEnrichWords(request, env);
     }
 
     // ===================== VERTEX PROXY =====================
@@ -1048,4 +1057,207 @@ async function handleEnrichFree(request: Request, env: Env): Promise<Response> {
   }
 
   return jsonOk({ enriched, total: words.length });
+}
+
+async function handleOcrImport(request: Request, env: Env): Promise<Response> {
+  const body = await parseBody<{ image: string; mimeType: string }>(request);
+  if (!body || !body.image) {
+    return jsonError("Image data is required", 400);
+  }
+
+  const mimeType = body.mimeType || "image/jpeg";
+  if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType)) {
+    return jsonError(`Unsupported image type: ${mimeType}`, 400);
+  }
+
+  const prompt = `You are OCR for English vocabulary. This is a newspaper image. Extract ONLY the bold/headline words that are suitable for English vocabulary learning. Return them as a JSON array of strings, e.g. ["word1","word2","word3"]. Do NOT include normal body text, only bold/highlighted words. If no bold words are found, return an empty array [].`;
+
+  let raw: string;
+  try {
+    raw = await callGeminiVision(env, prompt, body.image, mimeType);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "OCR failed";
+    console.error("OCR Gemini call failed:", msg);
+    return jsonError(msg, 502);
+  }
+
+  let words: string[];
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    words = JSON.parse(cleaned);
+    if (!Array.isArray(words)) throw new Error("Not an array");
+  } catch {
+    return jsonError("Failed to parse OCR result. Raw response: " + raw.slice(0, 200), 500);
+  }
+
+  return jsonOk({ words });
+}
+
+async function handleManualAdd(request: Request, env: Env): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+
+  const body = await parseBody<{
+    words: string[];
+    unit: string;
+    publisher: string;
+  }>(request);
+
+  if (!body || !Array.isArray(body.words) || body.words.length === 0) {
+    return jsonError("words 数组不能为空", 400);
+  }
+  if (!body.unit || !body.unit.trim()) {
+    return jsonError("unit 不能为空", 400);
+  }
+
+  const unit = body.unit.trim();
+  const publisher = body.publisher?.trim() || "21st Century";
+
+  const enriched: Array<{
+    word: string;
+    phonetic: string;
+    meaning: string;
+    publisher: string;
+    unit: string;
+  }> = [];
+
+  for (const raw of body.words) {
+    const word = raw.trim();
+    if (!word) continue;
+
+    let phonetic = "";
+    let meaning = "";
+
+    try {
+      const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
+      const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+      if (res.ok) {
+        const data = (await res.json()) as Array<Record<string, unknown>>;
+        if (data?.[0]) {
+          const entry = data[0];
+          if (typeof entry.phonetic === "string" && entry.phonetic) {
+            phonetic = entry.phonetic as string;
+          } else {
+            const phonetics = entry.phonetics as Array<Record<string, unknown>> | undefined;
+            if (phonetics) {
+              for (const ph of phonetics) {
+                if (typeof ph.text === "string" && ph.text) {
+                  phonetic = ph.text as string;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(word)}`;
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+      if (res.ok) {
+        const data = (await res.json()) as Array<unknown>;
+        if (data?.[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]) && data[0][0]?.[0]) {
+          meaning = String((data[0][0] as Array<unknown>)[0] as string);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    enriched.push({ word, phonetic, meaning, publisher, unit });
+  }
+
+  const created = await repoAddWords(env, session.userId, enriched);
+  return jsonOk({ words: created });
+}
+
+async function handleEnrichWords(request: Request, env: Env): Promise<Response> {
+  const session = await getSession(request, env);
+  if (!session) return jsonError("Unauthorized", 401);
+
+  const body = await parseBody<{ ids?: string[] }>(request);
+  if (!body || !Array.isArray(body.ids) || body.ids.length === 0) {
+    return jsonError("ids 数组不能为空", 400);
+  }
+
+  // Fetch current words from DB
+  const idList = body.ids.join(",");
+  const rows = await sbGet<WordRow>(env, `/words?id=in.(${idList})&select=id,word,phonetic,meaning`);
+  if (rows.length === 0) return jsonError("No matching words found", 404);
+
+  const enriched: Array<{ id: string; word: string; phonetic: string; meaning: string }> = [];
+  const skipped: Array<{ id: string; word: string; reason: string }> = [];
+
+  for (const row of rows) {
+    let phonetic = row.phonetic || "";
+    let meaning = row.meaning || "";
+    let phoneticFetched = false;
+    let meaningFetched = false;
+
+    // Fetch phonetic if missing
+    if (!phonetic) {
+      try {
+        const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(row.word)}`;
+        const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+        if (res.ok) {
+          const data = (await res.json()) as Array<Record<string, unknown>>;
+          if (data?.[0]) {
+            const entry = data[0];
+            if (typeof entry.phonetic === "string" && entry.phonetic) {
+              phonetic = entry.phonetic as string;
+            } else {
+              const phonetics = entry.phonetics as Array<Record<string, unknown>> | undefined;
+              if (phonetics) {
+                for (const ph of phonetics) {
+                  if (typeof ph.text === "string" && ph.text) {
+                    phonetic = ph.text as string;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (!phonetic) phoneticFetched = true; // tried but API had no result
+      } catch {
+        phoneticFetched = true; // tried but failed
+      }
+    }
+
+    // Fetch meaning if missing
+    if (!meaning) {
+      try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(row.word)}`;
+        const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+        if (res.ok) {
+          const data = (await res.json()) as Array<unknown>;
+          if (data?.[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]) && data[0][0]?.[0]) {
+            meaning = String((data[0][0] as Array<unknown>)[0] as string);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (phonetic !== row.phonetic || meaning !== row.meaning) {
+      try {
+        await repoUpdateWord(env, null, row.id, { phonetic, meaning });
+        enriched.push({ id: row.id, word: row.word, phonetic, meaning });
+      } catch {
+        skipped.push({ id: row.id, word: row.word, reason: "保存失败" });
+      }
+    } else if (row.phonetic && row.meaning) {
+      skipped.push({ id: row.id, word: row.word, reason: "已有完整音标和释义" });
+    } else if (phoneticFetched && !phonetic && !meaning) {
+      skipped.push({ id: row.id, word: row.word, reason: "未找到该词的音标和释义" });
+    } else if (phoneticFetched && !phonetic) {
+      skipped.push({ id: row.id, word: row.word, reason: "未找到音标" });
+    }
+  }
+
+  return jsonOk({ enriched, skipped, total: body.ids.length });
 }

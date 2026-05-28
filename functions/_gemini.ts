@@ -2,7 +2,7 @@ import { Env } from './_helpers';
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-export async function callGeminiGenerateContent(env: Env, prompt: string): Promise<string> {
+async function geminiFetch(env: Env, parts: unknown[]): Promise<string> {
   if (!env.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is not configured.');
   }
@@ -14,16 +14,8 @@ export async function callGeminiGenerateContent(env: Env, prompt: string): Promi
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1200,
-      },
+      contents: [{ role: 'user', parts }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1200 },
     }),
   });
 
@@ -33,8 +25,19 @@ export async function callGeminiGenerateContent(env: Env, prompt: string): Promi
   }
 
   const data = await response.json() as any;
-  const parts = data?.candidates?.[0]?.content?.parts ?? [];
-  const text = parts.map((part: { text?: string }) => part.text ?? '').join('').trim();
+  const parts_text = data?.candidates?.[0]?.content?.parts ?? [];
+  const text = parts_text.map((part: { text?: string }) => part.text ?? '').join('').trim();
   if (!text) throw new Error('Gemini API returned an empty response.');
   return text;
+}
+
+export async function callGeminiGenerateContent(env: Env, prompt: string): Promise<string> {
+  return geminiFetch(env, [{ text: prompt }]);
+}
+
+export async function callGeminiVision(env: Env, prompt: string, imageBase64: string, mimeType: string): Promise<string> {
+  return geminiFetch(env, [
+    { text: prompt },
+    { inlineData: { mimeType, data: imageBase64 } },
+  ]);
 }
