@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { BookOpen, BrainCircuit, Sparkles, ChevronRight, Filter, Trophy, Flame, Play, RotateCcw, ArrowLeft, X, Minus, Plus, ChevronDown, BookText } from "lucide-react";
+import { BookOpen, BrainCircuit, Sparkles, ChevronRight, Filter, Trophy, Flame, Play, RotateCcw, ArrowLeft, X, Minus, Plus, ChevronDown, BookText, SpellCheck } from "lucide-react";
 import { Word, MistakeRecord, TestConfig, PausedTest } from "../types";
 
 interface HomeProps {
@@ -8,6 +8,7 @@ interface HomeProps {
   onStartTest: (config: TestConfig) => void;
   onNavigateManage: () => void;
   onNavigateErrorBook: () => void;
+  onNavigateIrregularVerbs: () => void;
   pausedTest: PausedTest | null;
   onResumeTest: () => void;
   isAdmin?: boolean;
@@ -47,6 +48,7 @@ export const Home: React.FC<HomeProps> = ({
   onStartTest,
   onNavigateManage,
   onNavigateErrorBook,
+  onNavigateIrregularVerbs,
   pausedTest,
   onResumeTest,
   isAdmin = false,
@@ -223,6 +225,22 @@ export const Home: React.FC<HomeProps> = ({
           </button>
         )}
       </div>
+
+      <button
+        onClick={onNavigateIrregularVerbs}
+        className="w-full mb-6 p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-200/60 shadow-sm hover:from-indigo-100 hover:to-purple-100 transition-all cursor-pointer"
+      >
+        <div className="flex items-center gap-4">
+          <div className="w-11 h-11 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-xl flex items-center justify-center shadow-sm">
+            <SpellCheck className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 text-left">
+            <p className="font-bold text-stone-800 text-sm">Irregular Verbs Test</p>
+            <p className="text-xs text-stone-500">Practice irregular verb past tenses</p>
+          </div>
+          <ChevronRight className="w-5 h-5 text-stone-400" />
+        </div>
+      </button>
 
       {/* Resume Test Card */}
       {pausedTest && (

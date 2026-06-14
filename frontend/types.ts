@@ -36,7 +36,8 @@ export type ViewState =
   | "manage"
   | "user_management"
   | "error_book"
-  | "word_library";
+  | "word_library"
+  | "irregular_verbs";
 
 export interface TestConfig {
   mode: "unit" | "review";

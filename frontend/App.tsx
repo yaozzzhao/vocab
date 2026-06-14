@@ -12,6 +12,7 @@ import { LeftSidebar, RightSidebar } from "./components/Sidebar";
 import { AvatarDisplay, AvatarPicker } from "./components/Avatar";
 import { LogOut, Users, BookX, Trophy, HomeIcon, Settings, Sparkles, ChevronDown, Lock, KeyRound, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import * as db from "./db";
+import { IrregularVerbsTest } from "./components/IrregularVerbsTest";
 const { clearSession, getUserStats, updateUserStats } = db;
 
 const App: React.FC = () => {
@@ -328,6 +329,7 @@ const App: React.FC = () => {
               onStartTest={handleStartTest}
               onNavigateManage={() => setCurrentView("manage")}
               onNavigateErrorBook={() => navigateTo("error_book")}
+              onNavigateIrregularVerbs={() => navigateTo("irregular_verbs")}
               pausedTest={pausedTest}
               onResumeTest={handleResumeTest}
               isAdmin={currentUser.role === "admin"}
@@ -365,6 +367,10 @@ const App: React.FC = () => {
               onRemoveMistake={removeMistake}
               onNavigateHome={navigateToHome}
             />
+          )}
+
+          {currentView === "irregular_verbs" && (
+            <IrregularVerbsTest onNavigateHome={navigateToHome} />
           )}
         </main>
 
