@@ -137,21 +137,6 @@ async function fetchMeaningsBatch(words: string[]): Promise<Map<string, string>>
     // ignore
   }
 
-  // 2) MyMemory per-word fallback (sequential, stays under subrequest limit since we only get here if batch fails)
-  for (const word of words) {
-    try {
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|zh-CN`;
-      const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
-      if (res.ok) {
-        const data = (await res.json()) as Record<string, unknown>;
-        const text = (data?.responseData as Record<string, unknown> | undefined)?.translatedText;
-        if (text) result.set(word, String(text));
-      }
-    } catch {
-      // ignore
-    }
-  }
-
   return result;
 }
 
