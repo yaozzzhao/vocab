@@ -45,6 +45,100 @@ import {
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
+// ── Enrichment helpers ─────────────────────────────────────────────────────────
+
+async function fetchPhonetic(word: string): Promise<string> {
+  try {
+    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
+    const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+    if (!res.ok) return "";
+    const data = (await res.json()) as Array<Record<string, unknown>>;
+    if (!data?.[0]) return "";
+    const entry = data[0];
+    if (typeof entry.phonetic === "string" && entry.phonetic) {
+      return entry.phonetic as string;
+    }
+    const phonetics = entry.phonetics as Array<Record<string, unknown>> | undefined;
+    if (phonetics) {
+      for (const ph of phonetics) {
+        if (typeof ph.text === "string" && ph.text) {
+          return ph.text as string;
+        }
+      }
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+async function fetchMeaning(word: string): Promise<string> {
+  // 1) Google Translate
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(word)}`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (res.ok) {
+      const data = (await res.json()) as Array<unknown>;
+      if (data?.[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]) && data[0][0]?.[0]) {
+        const result = String((data[0][0] as Array<unknown>)[0] as string);
+        if (result) return result;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2) MyMemory API fallback
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|zh-CN`;
+    const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+    if (res.ok) {
+      const data = (await res.json()) as Record<string, unknown>;
+      if (data?.responseData) {
+        const responseData = data.responseData as Record<string, unknown>;
+        if (responseData.translatedText) {
+          return String(responseData.translatedText);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3) Free Dictionary API English definition as last resort
+  try {
+    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
+    const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+    if (res.ok) {
+      const data = (await res.json()) as Array<Record<string, unknown>>;
+      if (data?.[0]) {
+        const entry = data[0];
+        const meanings = entry.meanings as Array<Record<string, unknown>> | undefined;
+        if (meanings) {
+          const parts: string[] = [];
+          for (const m of meanings) {
+            const pos = m.partOfSpeech as string || "";
+            const defs = m.definitions as Array<Record<string, unknown>> | undefined;
+            if (defs?.[0]) {
+              const def = defs[0].definition as string || "";
+              if (def) {
+                parts.push(pos ? `(${pos}) ${def}` : def);
+              }
+            }
+          }
+          if (parts.length > 0) return parts.join("; ");
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return "";
+}
+
+// ── Route handler ──────────────────────────────────────────────────────────────
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -983,7 +1077,6 @@ async function handleEnrichFree(request: Request, env: Env): Promise<Response> {
 
   let words = body.words ?? [];
 
-  // If unit specified (and no words passed), fetch unenriched words from DB
   if (words.length === 0 && body.unit) {
     try {
       const limit = Math.min(body.limit ?? 50, 200);
@@ -1004,47 +1097,10 @@ async function handleEnrichFree(request: Request, env: Env): Promise<Response> {
   const enriched: Array<{ id: string; word: string; phonetic: string; meaning: string }> = [];
 
   for (const w of words) {
-    let phonetic = "";
-    let meaning = "";
-
-    try {
-      const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w.word)}`;
-      const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
-      if (res.ok) {
-        const data = (await res.json()) as Array<Record<string, unknown>>;
-        if (data?.[0]) {
-          const entry = data[0];
-          if (typeof entry.phonetic === "string" && entry.phonetic) {
-            phonetic = entry.phonetic as string;
-          } else {
-            const phonetics = entry.phonetics as Array<Record<string, unknown>> | undefined;
-            if (phonetics) {
-              for (const ph of phonetics) {
-                if (typeof ph.text === "string" && ph.text) {
-                  phonetic = ph.text as string;
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(w.word)}`;
-      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-      if (res.ok) {
-        const data = (await res.json()) as Array<unknown>;
-        if (data?.[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]) && data[0][0]?.[0]) {
-          meaning = String((data[0][0] as Array<unknown>)[0] as string);
-        }
-      }
-    } catch {
-      // ignore
-    }
+    const [phonetic, meaning] = await Promise.all([
+      fetchPhonetic(w.word),
+      fetchMeaning(w.word),
+    ]);
 
     if (phonetic || meaning) {
       try {
@@ -1125,47 +1181,10 @@ async function handleManualAdd(request: Request, env: Env): Promise<Response> {
     const word = raw.trim();
     if (!word) continue;
 
-    let phonetic = "";
-    let meaning = "";
-
-    try {
-      const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
-      const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
-      if (res.ok) {
-        const data = (await res.json()) as Array<Record<string, unknown>>;
-        if (data?.[0]) {
-          const entry = data[0];
-          if (typeof entry.phonetic === "string" && entry.phonetic) {
-            phonetic = entry.phonetic as string;
-          } else {
-            const phonetics = entry.phonetics as Array<Record<string, unknown>> | undefined;
-            if (phonetics) {
-              for (const ph of phonetics) {
-                if (typeof ph.text === "string" && ph.text) {
-                  phonetic = ph.text as string;
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(word)}`;
-      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-      if (res.ok) {
-        const data = (await res.json()) as Array<unknown>;
-        if (data?.[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]) && data[0][0]?.[0]) {
-          meaning = String((data[0][0] as Array<unknown>)[0] as string);
-        }
-      }
-    } catch {
-      // ignore
-    }
+    const [phonetic, meaning] = await Promise.all([
+      fetchPhonetic(word),
+      fetchMeaning(word),
+    ]);
 
     enriched.push({ word, phonetic, meaning, publisher, unit });
   }
@@ -1192,56 +1211,8 @@ async function handleEnrichWords(request: Request, env: Env): Promise<Response> 
   const skipped: Array<{ id: string; word: string; reason: string }> = [];
 
   for (const row of rows) {
-    let phonetic = row.phonetic || "";
-    let meaning = row.meaning || "";
-    let phoneticFetched = false;
-    let meaningFetched = false;
-
-    // Fetch phonetic if missing
-    if (!phonetic) {
-      try {
-        const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(row.word)}`;
-        const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
-        if (res.ok) {
-          const data = (await res.json()) as Array<Record<string, unknown>>;
-          if (data?.[0]) {
-            const entry = data[0];
-            if (typeof entry.phonetic === "string" && entry.phonetic) {
-              phonetic = entry.phonetic as string;
-            } else {
-              const phonetics = entry.phonetics as Array<Record<string, unknown>> | undefined;
-              if (phonetics) {
-                for (const ph of phonetics) {
-                  if (typeof ph.text === "string" && ph.text) {
-                    phonetic = ph.text as string;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        }
-        if (!phonetic) phoneticFetched = true; // tried but API had no result
-      } catch {
-        phoneticFetched = true; // tried but failed
-      }
-    }
-
-    // Fetch meaning if missing
-    if (!meaning) {
-      try {
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(row.word)}`;
-        const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-        if (res.ok) {
-          const data = (await res.json()) as Array<unknown>;
-          if (data?.[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]) && data[0][0]?.[0]) {
-            meaning = String((data[0][0] as Array<unknown>)[0] as string);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
+    const phonetic = row.phonetic || await fetchPhonetic(row.word);
+    const meaning = row.meaning || await fetchMeaning(row.word);
 
     if (phonetic !== row.phonetic || meaning !== row.meaning) {
       try {
@@ -1252,10 +1223,12 @@ async function handleEnrichWords(request: Request, env: Env): Promise<Response> 
       }
     } else if (row.phonetic && row.meaning) {
       skipped.push({ id: row.id, word: row.word, reason: "已有完整音标和释义" });
-    } else if (phoneticFetched && !phonetic && !meaning) {
+    } else if (!phonetic && !meaning) {
       skipped.push({ id: row.id, word: row.word, reason: "未找到该词的音标和释义" });
-    } else if (phoneticFetched && !phonetic) {
+    } else if (!phonetic) {
       skipped.push({ id: row.id, word: row.word, reason: "未找到音标" });
+    } else if (!meaning) {
+      skipped.push({ id: row.id, word: row.word, reason: "未找到释义" });
     }
   }
 
