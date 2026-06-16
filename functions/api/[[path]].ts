@@ -1222,7 +1222,7 @@ async function handleEnrichWords(request: Request, env: Env): Promise<Response> 
 
   // Fetch current words from DB
   const idList = body.ids.join(",");
-  const rows = await sbGet<WordRow>(env, `/words?id=in.(${idList})&select=id,word,phonetic,meaning`);
+  const rows = await sbGet<WordRow>(env, `/words?id=in.(${idList})&select=id,word,phonetic,meaning,owner_id`);
   if (rows.length === 0) return jsonError("No matching words found", 404);
 
   const enriched: Array<{ id: string; word: string; phonetic: string; meaning: string }> = [];
@@ -1243,7 +1243,7 @@ async function handleEnrichWords(request: Request, env: Env): Promise<Response> 
 
     if (phonetic !== row.phonetic || meaning !== row.meaning) {
       try {
-        await repoUpdateWord(env, null, row.id, { phonetic, meaning });
+        await repoUpdateWord(env, row.owner_id, row.id, { phonetic, meaning });
         enriched.push({ id: row.id, word: row.word, phonetic, meaning });
       } catch {
         skipped.push({ id: row.id, word: row.word, reason: "保存失败" });
