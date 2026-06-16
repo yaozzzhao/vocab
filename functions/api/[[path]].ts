@@ -105,36 +105,71 @@ async function fetchMeaning(word: string): Promise<string> {
     // ignore
   }
 
-  // 3) Free Dictionary API English definition as last resort
+  return "";
+}
+
+// ── Batch helpers ───────────────────────────────────────────────────────────────
+
+async function fetchMeaningsBatch(words: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (words.length === 0) return result;
+
+  // 1) Google Translate batch (join with newline)
   try {
-    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
-    const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+    const query = words.map((w) => encodeURIComponent(w)).join("%0A");
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${query}`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     if (res.ok) {
-      const data = (await res.json()) as Array<Record<string, unknown>>;
-      if (data?.[0]) {
-        const entry = data[0];
-        const meanings = entry.meanings as Array<Record<string, unknown>> | undefined;
-        if (meanings) {
-          const parts: string[] = [];
-          for (const m of meanings) {
-            const pos = m.partOfSpeech as string || "";
-            const defs = m.definitions as Array<Record<string, unknown>> | undefined;
-            if (defs?.[0]) {
-              const def = defs[0].definition as string || "";
-              if (def) {
-                parts.push(pos ? `(${pos}) ${def}` : def);
-              }
-            }
-          }
-          if (parts.length > 0) return parts.join("; ");
+      const data = (await res.json()) as Array<unknown>;
+      if (data?.[0] && Array.isArray(data[0])) {
+        const translations: string[] = [];
+        for (const t of data[0] as Array<Array<unknown>>) {
+          if (Array.isArray(t) && t[0]) translations.push(String(t[0]));
         }
+        const lines = translations.join("").split("\n");
+        for (let i = 0; i < Math.min(words.length, lines.length); i++) {
+          if (lines[i]) result.set(words[i], lines[i]);
+        }
+        return result;
       }
     }
   } catch {
     // ignore
   }
 
-  return "";
+  // 2) MyMemory per-word fallback (sequential, stays under subrequest limit since we only get here if batch fails)
+  for (const word of words) {
+    try {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|zh-CN`;
+      const res = await fetch(url, { headers: { "User-Agent": "VocabMaster/1.0" } });
+      if (res.ok) {
+        const data = (await res.json()) as Record<string, unknown>;
+        const text = (data?.responseData as Record<string, unknown> | undefined)?.translatedText;
+        if (text) result.set(word, String(text));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return result;
+}
+
+async function fetchPhoneticsBatch(words: string[], concurrency = 5): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const queue = [...words];
+
+  async function worker() {
+    while (queue.length > 0) {
+      const word = queue.shift()!;
+      const ph = await fetchPhonetic(word);
+      if (ph) result.set(word, ph);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, words.length) }, () => worker());
+  await Promise.all(workers);
+  return result;
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────────
@@ -1079,7 +1114,7 @@ async function handleEnrichFree(request: Request, env: Env): Promise<Response> {
 
   if (words.length === 0 && body.unit) {
     try {
-      const limit = Math.min(body.limit ?? 50, 200);
+      const limit = Math.min(body.limit ?? 40, 40);
       const rows = await sbGet<WordRow>(
         env,
         `/words?unit=eq.${encodeURIComponent(body.unit)}&or=(phonetic.eq.,meaning.eq.)&select=id,word,pos&limit=${limit}`,
@@ -1094,14 +1129,17 @@ async function handleEnrichFree(request: Request, env: Env): Promise<Response> {
     return jsonError("No words to enrich", 400);
   }
 
+  const wordList = words.map((w) => w.word);
+  const [meaningMap, phoneticMap] = await Promise.all([
+    fetchMeaningsBatch(wordList),
+    fetchPhoneticsBatch(wordList),
+  ]);
+
   const enriched: Array<{ id: string; word: string; phonetic: string; meaning: string }> = [];
 
   for (const w of words) {
-    const [phonetic, meaning] = await Promise.all([
-      fetchPhonetic(w.word),
-      fetchMeaning(w.word),
-    ]);
-
+    const phonetic = phoneticMap.get(w.word) || "";
+    const meaning = meaningMap.get(w.word) || "";
     if (phonetic || meaning) {
       try {
         await repoUpdateWord(env, null, w.id, { phonetic, meaning });
@@ -1169,25 +1207,20 @@ async function handleManualAdd(request: Request, env: Env): Promise<Response> {
   const unit = body.unit.trim();
   const publisher = body.publisher?.trim() || "21st Century";
 
-  const enriched: Array<{
-    word: string;
-    phonetic: string;
-    meaning: string;
-    publisher: string;
-    unit: string;
-  }> = [];
+  const words = body.words.map((w) => w.trim()).filter(Boolean);
 
-  for (const raw of body.words) {
-    const word = raw.trim();
-    if (!word) continue;
+  const [meaningMap, phoneticMap] = await Promise.all([
+    fetchMeaningsBatch(words),
+    fetchPhoneticsBatch(words),
+  ]);
 
-    const [phonetic, meaning] = await Promise.all([
-      fetchPhonetic(word),
-      fetchMeaning(word),
-    ]);
-
-    enriched.push({ word, phonetic, meaning, publisher, unit });
-  }
+  const enriched = words.map((word) => ({
+    word,
+    phonetic: phoneticMap.get(word) || "",
+    meaning: meaningMap.get(word) || "",
+    publisher,
+    unit,
+  }));
 
   const created = await repoAddWords(env, session.userId, enriched);
   return jsonOk({ words: created });
@@ -1210,9 +1243,18 @@ async function handleEnrichWords(request: Request, env: Env): Promise<Response> 
   const enriched: Array<{ id: string; word: string; phonetic: string; meaning: string }> = [];
   const skipped: Array<{ id: string; word: string; reason: string }> = [];
 
+  // Only batch-fetch what's missing
+  const needPhonetic = rows.filter((r) => !r.phonetic).map((r) => r.word);
+  const needMeaning = rows.filter((r) => !r.meaning).map((r) => r.word);
+
+  const [meaningMap, phoneticMap] = await Promise.all([
+    needMeaning.length > 0 ? fetchMeaningsBatch(needMeaning) : Promise.resolve(new Map<string, string>()),
+    needPhonetic.length > 0 ? fetchPhoneticsBatch(needPhonetic) : Promise.resolve(new Map<string, string>()),
+  ]);
+
   for (const row of rows) {
-    const phonetic = row.phonetic || await fetchPhonetic(row.word);
-    const meaning = row.meaning || await fetchMeaning(row.word);
+    const phonetic = row.phonetic || phoneticMap.get(row.word) || "";
+    const meaning = row.meaning || meaningMap.get(row.word) || "";
 
     if (phonetic !== row.phonetic || meaning !== row.meaning) {
       try {
